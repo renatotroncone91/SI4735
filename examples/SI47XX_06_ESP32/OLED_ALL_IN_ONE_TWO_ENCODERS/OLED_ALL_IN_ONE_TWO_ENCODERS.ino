@@ -21,12 +21,16 @@
   |                           | SDA/SDIO                      |  GPI21        |
   |                           | SCL/SCLK                      |  GPI22        |
   |    Encoder1               |                               |               |
-  |                           | A                             |  GPIO 13      |
-  |                           | B                             |  GPIO 14      |
-  |                           | PUSH BUTTON                   |  GPIO 27      |
+  |                           | A                             |  GPIO 26      |
+  |                           | B                             |  GPIO 27      |
+  |                           | PUSH BUTTON                   |  GPIO 14      |
   |    Encoder2               | A                             |  GPIO 25      |
-  |                           | B                             |  GPIO 26      |
-  |                           | PUSH BUTTON (encoder)         |  GPIO 32      |
+  |                           | B                             |  GPIO 33      |
+  |                           | PUSH BUTTON (encoder)         |  GPIO 23      |
+  |    Buttons                |                               |               |
+  |                           | Band                          |  GPIO 32      |
+  |                           | Mode                          |  GPIO 35 (*2) |
+  |                           | Seek                          |  GPIO 34 (*2) |
 
   ESP32 and SI4735-D60 or SI4732-A10 wire up
 
@@ -40,6 +44,7 @@
   (*1) The PU2CLR SI4735 Arduino Library has resources to detect the I2C bus address automatically.
        It seems the original project connect the SEN pin to the +Vcc. By using this sketch, you do
        not need to worry about this setting.
+  (*2) GPIO34 and GPIO35 are input-only and do not have internal pull-ups. Use external pull-ups to 3.3V.
   ATTENTION: Read the file user_manual.txt
   Prototype documentation: https://pu2clr.github.io/SI4735/
   PU2CLR Si47XX API documentation: https://pu2clr.github.io/SI4735/extras/apidoc/html/
@@ -65,13 +70,13 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define RESET_PIN 12                // GPIO12
 
 // Enconder PINs
-#define ENCODER1_PIN_A 13           // GPIO13 
-#define ENCODER1_PIN_B 14           // GPIO14
-#define ENCODER1_PUSH_BUTTON 27     // GPIO27
+#define ENCODER1_PIN_A 26           // GPIO26 
+#define ENCODER1_PIN_B 27           // GPIO27
+#define ENCODER1_PUSH_BUTTON 14     // GPIO14
 
 #define ENCODER2_PIN_A 25           // GPIO25
-#define ENCODER2_PIN_B 26           // GPIO26
-#define ENCODER2_PUSH_BUTTON 32     // GPIO32
+#define ENCODER2_PIN_B 33           // GPIO33
+#define ENCODER2_PUSH_BUTTON 23     // GPIO23
 
 
 
@@ -79,14 +84,17 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define ESP32_I2C_SDA 21
 #define ESP32_I2C_SCL 22
 
-// Buttons controllers
-
+// Buttons controllers (GPIO34/35 need external pull-ups)
+#define BAND_BUTTON_PIN 32          // GPIO32
+#define MODE_BUTTON_PIN 35          // GPIO35
+#define SEEK_BUTTON_PIN 34          // GPIO34
 
 #define MIN_ELAPSED_TIME 300
 #define MIN_ELAPSED_RSSI_TIME 200
 #define ELAPSED_COMMAND 2000  // time to turn off the last command controlled by encoder. Time to goes back to the FVO control
 #define ELAPSED_CLICK 1500    // time to check the double click commands
 #define DEFAULT_VOLUME 35    // change it for your favorite sound volume
+#define BUTTON_DEBOUNCE_MS 200
 
 #define FM 0
 #define LSB 1
@@ -129,6 +137,10 @@ bool cmdMenu = false;
 bool cmdSoftMuteMaxAtt = false;
 
 bool fmRDS = false;
+unsigned long lastButtonTime = 0;
+bool lastBandButtonState = HIGH;
+bool lastModeButtonState = HIGH;
+bool lastSeekButtonState = HIGH;
 
 int16_t currentBFO = 0;
 long elapsedRSSI = millis();
@@ -283,6 +295,9 @@ void setup()
   pinMode(ENCODER2_PIN_A, INPUT_PULLUP);
   pinMode(ENCODER2_PIN_B, INPUT_PULLUP);
 
+  pinMode(BAND_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(MODE_BUTTON_PIN, INPUT);
+  pinMode(SEEK_BUTTON_PIN, INPUT);
   
 
   // The line below may be necessary to setup I2C pins on ESP32
@@ -319,6 +334,10 @@ void setup()
     delay(3000);
     display.clearDisplay();
   }
+
+  lastBandButtonState = digitalRead(BAND_BUTTON_PIN);
+  lastModeButtonState = digitalRead(MODE_BUTTON_PIN);
+  lastSeekButtonState = digitalRead(SEEK_BUTTON_PIN);
 
   // ICACHE_RAM_ATTR void rotaryEncoder(); see rotaryEncoder implementation below.
   attachInterrupt(digitalPinToInterrupt(ENCODER1_PIN_A), rotaryEncoder1, CHANGE);
@@ -1063,6 +1082,35 @@ void doCurrentMenuCmd() {
 }
 
 /**
+ * Handle dedicated buttons (Band/Mode/Seek) with debounce.
+ */
+void handleButtons()
+{
+  unsigned long now = millis();
+  if (now - lastButtonTime < BUTTON_DEBOUNCE_MS)
+    return;
+
+  bool bandState = digitalRead(BAND_BUTTON_PIN);
+  bool modeState = digitalRead(MODE_BUTTON_PIN);
+  bool seekState = digitalRead(SEEK_BUTTON_PIN);
+
+  if (bandState == LOW && lastBandButtonState == HIGH) {
+    setBand(1);
+    lastButtonTime = now;
+  } else if (modeState == LOW && lastModeButtonState == HIGH) {
+    doMode(1);
+    lastButtonTime = now;
+  } else if (seekState == LOW && lastSeekButtonState == HIGH) {
+    doSeek();
+    lastButtonTime = now;
+  }
+
+  lastBandButtonState = bandState;
+  lastModeButtonState = modeState;
+  lastSeekButtonState = seekState;
+}
+
+/**
  * Main loop
  */
 void loop()
@@ -1139,6 +1187,8 @@ void loop()
       showStatus(); 
     }
   }
+
+  handleButtons();
 
   // Show RSSI status only if this condition has changed
   if ((millis() - elapsedRSSI) > MIN_ELAPSED_RSSI_TIME * 12)

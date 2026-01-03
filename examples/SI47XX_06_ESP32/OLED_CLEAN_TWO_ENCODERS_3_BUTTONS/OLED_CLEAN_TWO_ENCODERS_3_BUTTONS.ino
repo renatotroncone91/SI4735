@@ -130,6 +130,13 @@ struct ButtonState
   unsigned long pressedAt;
 };
 
+enum ButtonEvent
+{
+  BUTTON_NONE,
+  BUTTON_SHORT,
+  BUTTON_LONG
+};
+
 ButtonState modeButton{MODE_BUTTON_PIN, HIGH, false, 0, 0};
 ButtonState bandButton{BAND_BUTTON_PIN, HIGH, false, 0, 0};
 ButtonState seekButton{SEEK_BUTTON_PIN, HIGH, false, 0, 0};
@@ -440,13 +447,6 @@ void handleEncoder2()
   encoderCount2 = 0;
   updateScreen();
 }
-
-enum ButtonEvent
-{
-  BUTTON_NONE,
-  BUTTON_SHORT,
-  BUTTON_LONG
-};
 
 ButtonEvent pollButton(ButtonState &button)
 {

@@ -93,6 +93,7 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define ELAPSED_COMMAND 2000  // time to turn off the last command controlled by encoder. Time to goes back to the FVO control
 #define DEFAULT_VOLUME 35    // change it for your favorite sound volume
 #define BUTTON_DEBOUNCE_MS 200
+#define ENCODER_BUTTON_DEBOUNCE_MS 200
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -131,6 +132,9 @@ unsigned long lastButtonTime = 0;
 bool lastBandButtonState = HIGH;
 bool lastModeButtonState = HIGH;
 bool lastSeekButtonState = HIGH;
+unsigned long lastEncoderButtonTime = 0;
+bool lastEncoder1ButtonState = HIGH;
+bool lastEncoder2ButtonState = HIGH;
 
 int16_t currentBFO = 0;
 uint8_t currentBFOStep = 10;
@@ -321,6 +325,8 @@ void setup()
   lastBandButtonState = digitalRead(BAND_BUTTON_PIN);
   lastModeButtonState = digitalRead(MODE_BUTTON_PIN);
   lastSeekButtonState = digitalRead(SEEK_BUTTON_PIN);
+  lastEncoder1ButtonState = digitalRead(ENCODER1_PUSH_BUTTON);
+  lastEncoder2ButtonState = digitalRead(ENCODER2_PUSH_BUTTON);
 
   // ICACHE_RAM_ATTR void rotaryEncoder(); see rotaryEncoder implementation below.
   attachInterrupt(digitalPinToInterrupt(ENCODER1_PIN_A), rotaryEncoder1, CHANGE);
@@ -953,6 +959,30 @@ void doMode(int8_t v)
 }
 
 /**
+ * Cycle between FM -> AM -> LSB -> USB -> FM
+ */
+void doModeButton()
+{
+  if (currentMode == FM) {
+    if (bandIdx == 0)
+      bandIdx = 1;
+    currentMode = AM;
+    useBand();
+    return;
+  }
+
+  if (currentMode == AM) {
+    doMode(1);
+  } else if (currentMode == LSB) {
+    doMode(1);
+  } else if (currentMode == USB) {
+    doMode(1);
+    bandIdx = 0;
+    useBand();
+  }
+}
+
+/**
  * Sets the audio volume
  */
 void doVolume( int8_t v ) {
@@ -1018,7 +1048,7 @@ void handleButtons()
     setBand(1);
     lastButtonTime = now;
   } else if (modeState == LOW && lastModeButtonState == HIGH) {
-    doMode(1);
+    doModeButton();
     lastButtonTime = now;
   } else if (seekState == LOW && lastSeekButtonState == HIGH) {
     doSeek();
@@ -1028,6 +1058,30 @@ void handleButtons()
   lastBandButtonState = bandState;
   lastModeButtonState = modeState;
   lastSeekButtonState = seekState;
+}
+
+/**
+ * Handle encoder push buttons for step changes.
+ */
+void handleEncoderButtons()
+{
+  unsigned long now = millis();
+  if (now - lastEncoderButtonTime < ENCODER_BUTTON_DEBOUNCE_MS)
+    return;
+
+  bool enc1State = digitalRead(ENCODER1_PUSH_BUTTON);
+  bool enc2State = digitalRead(ENCODER2_PUSH_BUTTON);
+
+  if (enc1State == LOW && lastEncoder1ButtonState == HIGH) {
+    doStep(1);
+    lastEncoderButtonTime = now;
+  } else if (enc2State == LOW && lastEncoder2ButtonState == HIGH) {
+    doBFOStep(1);
+    lastEncoderButtonTime = now;
+  }
+
+  lastEncoder1ButtonState = enc1State;
+  lastEncoder2ButtonState = enc2State;
 }
 
 /**
@@ -1060,19 +1114,9 @@ void loop()
       }
       encoderCount2 = 0;          
   }
-  else
-  {
-    if ( digitalRead(ENCODER1_PUSH_BUTTON) == LOW ) {
-      doStep(1);
-      delay(MIN_ELAPSED_TIME);
-    }
-    if ( digitalRead(ENCODER2_PUSH_BUTTON) == LOW ) {   
-      doBFOStep(1);
-      delay(MIN_ELAPSED_TIME);
-    }
-  }
 
   handleButtons();
+  handleEncoderButtons();
 
   // Show RSSI status only if this condition has changed
   if ((millis() - elapsedRSSI) > MIN_ELAPSED_RSSI_TIME * 12)

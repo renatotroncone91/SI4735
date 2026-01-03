@@ -17,7 +17,7 @@
 
   | Device name               | Device Pin / Description      |  ESP32        |
   | ----------------          | ----------------------------- | ------------  |
-  |    OLED                   |                               |               |
+  |    OLED (1" 128x64)        |                               |               |
   |                           | SDA/SDIO                      |  GPI21        |
   |                           | SCL/SCLK                      |  GPI22        |
   |    Encoder1               |                               |               |
@@ -94,6 +94,9 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define ELAPSED_CLICK 1500    // time to check the double click commands
 #define DEFAULT_VOLUME 35    // change it for your favorite sound volume
 #define BUTTON_DEBOUNCE_MS 200
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
 
 #define FM 0
 #define LSB 1
@@ -277,7 +280,7 @@ uint8_t volume = DEFAULT_VOLUME;
 Rotary encoder1 = Rotary(ENCODER1_PIN_A, ENCODER1_PIN_B);
 Rotary encoder2 = Rotary(ENCODER2_PIN_A, ENCODER2_PIN_B);
 
-Adafruit_SSD1306 display = Adafruit_SSD1306(128, 32, &Wire);
+Adafruit_SSD1306 display = Adafruit_SSD1306(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire);
 
 SI4735 rx;
 
@@ -302,7 +305,7 @@ void setup()
   // The line below may be necessary to setup I2C pins on ESP32
   Wire.begin(ESP32_I2C_SDA, ESP32_I2C_SCL);
 
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x32
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C); // Address 0x3C for 128x64
 
   display.display();
   display.setTextColor(SSD1306_WHITE);

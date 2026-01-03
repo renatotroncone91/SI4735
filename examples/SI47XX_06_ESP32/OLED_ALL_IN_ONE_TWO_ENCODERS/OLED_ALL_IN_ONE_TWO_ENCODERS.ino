@@ -29,8 +29,8 @@
   |                           | PUSH BUTTON (encoder)         |  GPIO 23      |
   |    Buttons                |                               |               |
   |                           | Band                          |  GPIO 32      |
-  |                           | Mode                          |  GPIO 35 (*2) |
-  |                           | Seek                          |  GPIO 34 (*2) |
+  |                           | Mode                          |  GPIO 13      |
+  |                           | Seek                          |  GPIO 15      |
 
   ESP32 and SI4735-D60 or SI4732-A10 wire up
 
@@ -44,7 +44,6 @@
   (*1) The PU2CLR SI4735 Arduino Library has resources to detect the I2C bus address automatically.
        It seems the original project connect the SEN pin to the +Vcc. By using this sketch, you do
        not need to worry about this setting.
-  (*2) GPIO34 and GPIO35 are input-only and do not have internal pull-ups. Use external pull-ups to 3.3V.
   ATTENTION: Read the file user_manual.txt
   Prototype documentation: https://pu2clr.github.io/SI4735/
   PU2CLR Si47XX API documentation: https://pu2clr.github.io/SI4735/extras/apidoc/html/
@@ -84,10 +83,10 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define ESP32_I2C_SDA 21
 #define ESP32_I2C_SCL 22
 
-// Buttons controllers (GPIO34/35 need external pull-ups)
+// Buttons controllers (with internal pull-ups)
 #define BAND_BUTTON_PIN 32          // GPIO32
-#define MODE_BUTTON_PIN 35          // GPIO35
-#define SEEK_BUTTON_PIN 34          // GPIO34
+#define MODE_BUTTON_PIN 13          // GPIO13
+#define SEEK_BUTTON_PIN 15          // GPIO15
 
 #define MIN_ELAPSED_TIME 300
 #define MIN_ELAPSED_RSSI_TIME 200
@@ -296,8 +295,8 @@ void setup()
   pinMode(ENCODER2_PIN_B, INPUT_PULLUP);
 
   pinMode(BAND_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(MODE_BUTTON_PIN, INPUT);
-  pinMode(SEEK_BUTTON_PIN, INPUT);
+  pinMode(MODE_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(SEEK_BUTTON_PIN, INPUT_PULLUP);
   
 
   // The line below may be necessary to setup I2C pins on ESP32

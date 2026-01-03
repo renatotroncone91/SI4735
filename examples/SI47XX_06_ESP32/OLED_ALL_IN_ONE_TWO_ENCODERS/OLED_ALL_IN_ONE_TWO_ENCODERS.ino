@@ -91,7 +91,6 @@ const uint16_t size_content = sizeof ssb_patch_content; // see patch_init.h
 #define MIN_ELAPSED_TIME 300
 #define MIN_ELAPSED_RSSI_TIME 200
 #define ELAPSED_COMMAND 2000  // time to turn off the last command controlled by encoder. Time to goes back to the FVO control
-#define ELAPSED_CLICK 1500    // time to check the double click commands
 #define DEFAULT_VOLUME 35    // change it for your favorite sound volume
 #define BUTTON_DEBOUNCE_MS 200
 
@@ -125,18 +124,7 @@ int8_t agcIdx = 0;
 uint8_t disableAgc = 0;
 int8_t agcNdx = 0;
 int8_t softMuteMaxAttIdx = 4;
-uint8_t countClick = 0;
-
 uint8_t seekDirection = 1;
-
-bool cmdBand = false;
-bool cmdVolume = false;
-bool cmdAgc = false;
-bool cmdBandwidth = false;
-bool cmdStep = false;
-bool cmdMode = false;
-bool cmdMenu = false;
-bool cmdSoftMuteMaxAtt = false;
 
 bool fmRDS = false;
 unsigned long lastButtonTime = 0;
@@ -148,17 +136,11 @@ int16_t currentBFO = 0;
 long elapsedRSSI = millis();
 long elapsedButton = millis();
 
-long elapsedClick = millis();
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
 uint16_t currentFrequency;
 
 const uint8_t currentBFOStep = 10;
-
-const char * menu[] = {"Seek", "Step", "Mode", "BW", "AGC/Att", "Volume", "SoftMute", "BFO"};
-int8_t menuIdx = 0;
-const int lastMenu = 7;
-int8_t currentMenuCmd = -1;
 
 typedef struct
 {
@@ -508,17 +490,7 @@ void resetEepromDelay()
 */
 void disableCommands()
 {
-  cmdBand = false;
   bfoOn = false;
-  cmdVolume = false;
-  cmdAgc = false;
-  cmdBandwidth = false;
-  cmdStep = false;
-  cmdMode = false;
-  cmdMenu = false;
-  cmdSoftMuteMaxAtt = false;
-  countClick = 0;
-  // showCommandStatus((char *) "VFO ");
 }
 
 /**
@@ -854,28 +826,6 @@ void doBandwidth(int8_t v)
 }
 
 /**
- * Show cmd on display. It means you are setting up something.  
- */
-void showCommandStatus(char * currentCmd)
-{
-  display.fillRect(40, 0, 50, 8, SSD1306_BLACK); 
-  display.setCursor(40, 0);
-  display.print(currentCmd);
-  display.display();  
-}
-
-/**
- * Show menu options
- */
-void showMenu() {
-  display.clearDisplay();
-  display.setCursor(0, 10);
-  display.print(menu[menuIdx]);
-  display.display();
-  showCommandStatus( (char *) "Menu");
-}
-
-/**
  *  AGC and attenuattion setup
  */
 void doAgc(int8_t v) {
@@ -1021,69 +971,6 @@ void doSoftMute(int8_t v)
 }
 
 /**
- *  Menu options selection
- */
-void doMenu( int8_t v) {
-  int8_t lastOpt;
-  menuIdx = (v == 1) ? menuIdx + 1 : menuIdx - 1;
-  lastOpt = ((currentMode == LSB || currentMode == USB)) ? lastMenu : lastMenu - 1;
-  if (menuIdx > lastOpt)
-    menuIdx = 0;
-  else if (menuIdx < 0)
-    menuIdx = lastOpt;
-
-  showMenu();
-  delay(MIN_ELAPSED_TIME); // waits a little more for releasing the button.
-}
-
-
-/**
- * Starts the MENU action process
- */
-void doCurrentMenuCmd() {
-  disableCommands();
-  switch (currentMenuCmd) {
-    case 1:                 // STEP
-      cmdStep = true;
-      showStep();
-      break;
-    case 2:                 // MODE
-      cmdMode = true;
-      // lcd.clear();
-      showMode();
-      break;
-    case 3:                 // BW
-      cmdBandwidth = true;
-      showBandwidth();
-      break;
-    case 4:                 // AGC/ATT
-      cmdAgc = true;
-      showAgcAtt();
-      break;
-    case 5:                 // VOLUME
-      cmdVolume = true;
-      showVolume();
-      break;
-    case 6: 
-      cmdSoftMuteMaxAtt = true;
-      showSoftMute();  
-      break;
-    case 7:
-      bfoOn = true;
-      if ((currentMode == LSB || currentMode == USB)) {
-        showBFO();
-       }
-      // showFrequency();
-      break;
-    default:
-        showStatus();
-        doSeek();
-      break;
-  }
-  currentMenuCmd = -1;
-}
-
-/**
  * Handle dedicated buttons (Band/Mode/Seek) with debounce.
  */
 void handleButtons()
@@ -1120,28 +1007,12 @@ void loop()
   // Check if the encoder has moved.
   if (encoderCount1 != 0)
   {
-    if (bfoOn & (currentMode == LSB || currentMode == USB))
+    if (bfoOn && (currentMode == LSB || currentMode == USB))
     {
       currentBFO = (encoderCount1 == 1) ? (currentBFO + currentBFOStep) : (currentBFO - currentBFOStep);
       rx.setSSBBfo(currentBFO);
       showBFO();
     }
-    else if (cmdMenu)
-      doMenu(encoderCount1);
-    else if (cmdMode)
-      doMode(encoderCount1);
-    else if (cmdStep)
-      doStep(encoderCount1);
-    else if (cmdAgc)
-      doAgc(encoderCount1);
-    else if (cmdBandwidth)
-      doBandwidth(encoderCount1);
-    else if (cmdVolume)
-      doVolume(encoderCount1);
-    else if (cmdSoftMuteMaxAtt)
-      doSoftMute(encoderCount1);
-    else if (cmdBand)
-      setBand(encoderCount1);
     else
     {
       if (encoderCount1 == 1) {
@@ -1166,22 +1037,12 @@ void loop()
   else
   {
     if ( digitalRead(ENCODER1_PUSH_BUTTON) == LOW ) {
-      countClick++;
-      if (cmdMenu ) {
-        currentMenuCmd = menuIdx;
-        doCurrentMenuCmd();
-      } else if ( countClick == 1) { // If just one click, you can select the band by rotating the encoder
-        if ( (cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode | cmdBand) ) {
-          disableCommands();
-          showStatus();
-          showCommandStatus((char *) "VFO ");
-        } else {
-          cmdBand = !cmdBand;
-          showCommandStatus((char *) "Band");
-        }
-      } else { // GO to MENU if more than one click in less than 1/2 seconds.
-        cmdMenu = !cmdMenu;
-        if (cmdMenu) showMenu();
+      if (currentMode == LSB || currentMode == USB) {
+        bfoOn = !bfoOn;
+        if (bfoOn)
+          showBFO();
+        else
+          showFrequency();
       }
       delay(MIN_ELAPSED_TIME);
     }
@@ -1197,17 +1058,12 @@ void loop()
   {
     rx.getCurrentReceivedSignalQuality();
     int aux = rx.getCurrentRSSI();
-    if (rssi != aux &&  !(cmdStep | cmdBandwidth | cmdAgc | cmdVolume | cmdSoftMuteMaxAtt | cmdMode) )
+    if (rssi != aux)
     {
       rssi = aux;
       showRSSI();
     }
     elapsedRSSI = millis();
-  }
-
-  if ( (millis() - elapsedClick) > ELAPSED_CLICK ) {
-    countClick = 0;
-    elapsedClick = millis();
   }
 
   // Show the current frequency only if it has changed

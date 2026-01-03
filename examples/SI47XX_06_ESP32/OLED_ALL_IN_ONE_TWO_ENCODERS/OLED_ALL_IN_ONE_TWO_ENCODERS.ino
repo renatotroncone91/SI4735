@@ -770,7 +770,6 @@ void useBand()
 
   rssi = 0;
   showStatus();
-  showCommandStatus((char *) "Band");
 }
 
 

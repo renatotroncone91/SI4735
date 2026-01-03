@@ -52,6 +52,7 @@
 #define DEFAULT_VOLUME 35
 #define LONG_PRESS_MS 800
 #define DEBOUNCE_MS 30
+#define BUTTON_ACTIVE_LEVEL LOW
 
 const uint16_t size_content = sizeof ssb_patch_content;
 
@@ -125,16 +126,15 @@ struct ButtonState
   uint8_t pin;
   bool lastReading;
   bool pressed;
-  bool longFired;
   unsigned long lastChange;
   unsigned long pressedAt;
 };
 
-ButtonState modeButton{MODE_BUTTON_PIN, HIGH, false, false, 0, 0};
-ButtonState bandButton{BAND_BUTTON_PIN, HIGH, false, false, 0, 0};
-ButtonState seekButton{SEEK_BUTTON_PIN, HIGH, false, false, 0, 0};
-ButtonState enc1Button{ENCODER1_PUSH_BUTTON, HIGH, false, false, 0, 0};
-ButtonState enc2Button{ENCODER2_PUSH_BUTTON, HIGH, false, false, 0, 0};
+ButtonState modeButton{MODE_BUTTON_PIN, HIGH, false, 0, 0};
+ButtonState bandButton{BAND_BUTTON_PIN, HIGH, false, 0, 0};
+ButtonState seekButton{SEEK_BUTTON_PIN, HIGH, false, 0, 0};
+ButtonState enc1Button{ENCODER1_PUSH_BUTTON, HIGH, false, 0, 0};
+ButtonState enc2Button{ENCODER2_PUSH_BUTTON, HIGH, false, 0, 0};
 
 Rotary encoder1(ENCODER1_PIN_A, ENCODER1_PIN_B);
 Rotary encoder2(ENCODER2_PIN_A, ENCODER2_PIN_B);
@@ -376,6 +376,12 @@ void updateScreen()
     snprintf(infoBuffer, sizeof(infoBuffer), "BFO:%d", currentBFO);
     display.print(infoBuffer);
   }
+  else if (currentMode != FM)
+  {
+    display.setCursor(0, 40);
+    snprintf(infoBuffer, sizeof(infoBuffer), "BAND:%s", bandTable[bandIdx].name);
+    display.print(infoBuffer);
+  }
 
   display.display();
 }
@@ -435,7 +441,14 @@ void handleEncoder2()
   updateScreen();
 }
 
-bool updateButton(ButtonState &button)
+enum ButtonEvent
+{
+  BUTTON_NONE,
+  BUTTON_SHORT,
+  BUTTON_LONG
+};
+
+ButtonEvent pollButton(ButtonState &button)
 {
   bool reading = digitalRead(button.pin);
   if (reading != button.lastReading)
@@ -445,36 +458,24 @@ bool updateButton(ButtonState &button)
 
   if ((millis() - button.lastChange) > DEBOUNCE_MS)
   {
-    if (!button.pressed && reading == LOW)
+    if (!button.pressed && reading == BUTTON_ACTIVE_LEVEL)
     {
       button.pressed = true;
       button.pressedAt = millis();
-      button.longFired = false;
     }
 
-    if (button.pressed && reading == LOW && !button.longFired && (millis() - button.pressedAt) > LONG_PRESS_MS)
-    {
-      button.longFired = true;
-      return true;
-    }
-
-    if (button.pressed && reading == HIGH)
+    if (button.pressed && reading != BUTTON_ACTIVE_LEVEL)
     {
       button.pressed = false;
-      if (!button.longFired)
-      {
-        return true;
-      }
+      unsigned long pressTime = millis() - button.pressedAt;
+      if (pressTime >= LONG_PRESS_MS)
+        return BUTTON_LONG;
+      return BUTTON_SHORT;
     }
   }
 
   button.lastReading = reading;
-  return false;
-}
-
-bool isLongPress(const ButtonState &button)
-{
-  return button.longFired;
+  return BUTTON_NONE;
 }
 
 void cycleMode()
@@ -615,45 +616,47 @@ void loop()
   handleEncoder1();
   handleEncoder2();
 
-  if (updateButton(modeButton))
+  ButtonEvent modeEvent = pollButton(modeButton);
+  if (modeEvent == BUTTON_SHORT)
   {
-    if (!isLongPress(modeButton))
-      cycleMode();
+    cycleMode();
   }
 
-  if (updateButton(bandButton))
+  ButtonEvent bandEvent = pollButton(bandButton);
+  if (bandEvent == BUTTON_SHORT)
   {
-    if (!isLongPress(bandButton))
-      nextBand();
+    nextBand();
   }
 
-  if (updateButton(seekButton))
+  ButtonEvent seekEvent = pollButton(seekButton);
+  if (seekEvent != BUTTON_NONE)
   {
     if (currentMode == USB || currentMode == LSB)
     {
-      if (isLongPress(seekButton))
+      if (seekEvent == BUTTON_LONG)
         toggleBfo();
       else
         toggleSideband();
     }
     else
     {
-      seekStation(!isLongPress(seekButton));
+      seekStation(seekEvent == BUTTON_SHORT);
     }
   }
 
-  if (updateButton(enc1Button))
+  ButtonEvent enc1Event = pollButton(enc1Button);
+  if (enc1Event != BUTTON_NONE)
   {
-    if (isLongPress(enc1Button))
+    if (enc1Event == BUTTON_LONG)
       toggleBandwidth();
     else
       toggleStep();
   }
 
-  if (updateButton(enc2Button))
+  ButtonEvent enc2Event = pollButton(enc2Button);
+  if (enc2Event == BUTTON_SHORT)
   {
-    if (!isLongPress(enc2Button))
-      toggleMute();
+    toggleMute();
   }
 
   updateRssi();

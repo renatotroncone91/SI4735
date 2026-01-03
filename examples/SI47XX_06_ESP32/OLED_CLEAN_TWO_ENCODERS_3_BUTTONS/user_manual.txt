@@ -1,0 +1,57 @@
+OLED_CLEAN_TWO_ENCODERS_3_BUTTONS
+================================
+
+Hardware
+--------
+ESP32 + SI4735 + OLED 128x64 (I2C) + 2 encoders + 3 buttons
+
+Pinout (as used in the sketch)
+------------------------------
+RESET_PIN 12
+
+Encoder 1 (tuning)
+- A: GPIO26
+- B: GPIO27
+- Push: GPIO14
+
+Encoder 2 (volume)
+- A: GPIO25
+- B: GPIO33
+- Push: GPIO23
+
+I2C OLED
+- SDA: GPIO21
+- SCL: GPIO22
+
+Buttons (internal pull-ups)
+- MODE: GPIO13
+- BAND: GPIO32
+- SEEK: GPIO15
+
+Controls
+--------
+Encoder 1 (tuning)
+- Rotate: tune frequency
+- Short press: change tuning step (FM: 5/10/20 kHz, AM/SSB: 1/5/9/10/50/100 kHz)
+- Long press: change bandwidth (FM/AM/SSB)
+
+Encoder 2 (volume)
+- Rotate: volume up/down
+- Short press: mute/unmute
+
+MODE button
+- Cycle FM -> AM -> SSB
+
+BAND button
+- Cycle bands when in AM/SSB (MW/LW/SW list)
+- In FM mode, cycles FM entries (if more than one FM band is defined)
+
+SEEK button (suggested function)
+- FM/AM: short press seek up, long press seek down
+- SSB: short press toggle USB/LSB, long press toggle BFO control
+
+Notes
+-----
+- The sketch uses the SI4735 SSB patch. Make sure patch_init.h is available in your
+  Arduino libraries (it is included with the PU2CLR SI4735 library examples).
+- If you want a different band plan, edit bandTable[] in the sketch.

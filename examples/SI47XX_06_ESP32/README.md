@@ -2,6 +2,13 @@
 
 This folder shows some examples with Si4735 Arduino Library and ESP32 platform.
 
+## Example OLED_CLEAN_TWO_ENCODERS_3_BUTTONS
+
+Clean ESP32 + SI4735 + OLED 128x64 example with two encoders and three buttons (no menus).
+Pins match a common ESP32 DevKit wiring, with MODE for FM/AM/SSB, BAND for AM/SSB band
+selection, and SEEK for seek/SSB actions. See the example folder for wiring and control
+details.
+
 ## Tips to use ESP32 with Arduino:
 
 Before starting compiling ESP32 based sketches, you must configure your Arduino IDE. Follow the steps below:

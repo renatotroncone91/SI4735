@@ -133,14 +133,13 @@ bool lastModeButtonState = HIGH;
 bool lastSeekButtonState = HIGH;
 
 int16_t currentBFO = 0;
+uint8_t currentBFOStep = 10;
 long elapsedRSSI = millis();
 long elapsedButton = millis();
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
 uint16_t currentFrequency;
-
-const uint8_t currentBFOStep = 10;
 
 typedef struct
 {
@@ -680,6 +679,12 @@ void showBFO()
     sprintf(bfo, "BFO: %4.4d", currentBFO);
 
   printParam(bfo);
+  display.fillRect(0, 20, 128, 10, SSD1306_BLACK);
+  display.setTextSize(1);
+  display.setCursor(0, 20);
+  display.print("BFO stp:");
+  display.print(currentBFOStep);
+  display.display();
 }
 
 /*
@@ -876,6 +881,33 @@ void doStep(int8_t v)
 }
 
 /**
+ * Switches the BFO step
+ */
+void doBFOStep(int8_t v)
+{
+  if (currentMode != LSB && currentMode != USB)
+    return;
+
+  if (v == 1) {
+    if (currentBFOStep == 10)
+      currentBFOStep = 50;
+    else if (currentBFOStep == 50)
+      currentBFOStep = 100;
+    else
+      currentBFOStep = 10;
+  } else {
+    if (currentBFOStep == 10)
+      currentBFOStep = 100;
+    else if (currentBFOStep == 100)
+      currentBFOStep = 50;
+    else
+      currentBFOStep = 10;
+  }
+
+  showBFO();
+}
+
+/**
  * Switches to the AM, LSB or USB modes
  */
 void doMode(int8_t v)
@@ -1007,47 +1039,37 @@ void loop()
   // Check if the encoder has moved.
   if (encoderCount1 != 0)
   {
-    if (bfoOn && (currentMode == LSB || currentMode == USB))
-    {
-      currentBFO = (encoderCount1 == 1) ? (currentBFO + currentBFOStep) : (currentBFO - currentBFOStep);
-      rx.setSSBBfo(currentBFO);
-      showBFO();
+    if (encoderCount1 == 1) {
+      rx.frequencyUp();
+      seekDirection = 1;
     }
-    else
-    {
-      if (encoderCount1 == 1) {
-        rx.frequencyUp();
-        seekDirection = 1;
-      }
-      else{
-        rx.frequencyDown();
-        seekDirection = 0;
-      }
-      // Show the current frequency only if it has changed
-      currentFrequency = rx.getFrequency();
-      showFrequency();
+    else{
+      rx.frequencyDown();
+      seekDirection = 0;
     }
+    // Show the current frequency only if it has changed
+    currentFrequency = rx.getFrequency();
+    showFrequency();
     encoderCount1 = 0;
     elapsedRSSI = millis();
     resetEepromDelay();
   } else if (encoderCount2 != 0) {
-      doVolume(encoderCount2);
+      if (currentMode == LSB || currentMode == USB) {
+        currentBFO = (encoderCount2 == 1) ? (currentBFO + currentBFOStep) : (currentBFO - currentBFOStep);
+        rx.setSSBBfo(currentBFO);
+        showBFO();
+      }
       encoderCount2 = 0;          
   }
   else
   {
     if ( digitalRead(ENCODER1_PUSH_BUTTON) == LOW ) {
-      if (currentMode == LSB || currentMode == USB) {
-        bfoOn = !bfoOn;
-        if (bfoOn)
-          showBFO();
-        else
-          showFrequency();
-      }
+      doStep(1);
       delay(MIN_ELAPSED_TIME);
     }
     if ( digitalRead(ENCODER2_PUSH_BUTTON) == LOW ) {   
-      showStatus(); 
+      doBFOStep(1);
+      delay(MIN_ELAPSED_TIME);
     }
   }
 

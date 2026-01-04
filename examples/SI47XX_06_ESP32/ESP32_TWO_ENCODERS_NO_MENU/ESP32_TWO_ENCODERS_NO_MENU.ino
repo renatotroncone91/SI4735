@@ -292,12 +292,14 @@ void showStatus() {
   display.setTextSize(1);
   if (currentMode == MODE_FM) {
     if (rdsStation[0] != '\0') {
-      display.setCursor(0, 34);
+      display.setTextSize(2);
+      display.setCursor(0, 32);
       display.print(rdsStation);
+      display.setTextSize(1);
     }
     buildRdsScrollLine(rdsLine, sizeof(rdsLine));
     if (rdsLine[0] != '\0') {
-      display.setCursor(0, 48);
+      display.setCursor(0, 52);
       display.print(rdsLine);
     }
   } else {

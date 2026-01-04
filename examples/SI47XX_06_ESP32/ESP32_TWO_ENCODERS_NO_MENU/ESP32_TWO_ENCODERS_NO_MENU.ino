@@ -65,9 +65,7 @@
 #define DEBOUNCE_MS 200
 #define SIGNAL_UPDATE_MS 400
 #define RDS_UPDATE_MS 400
-#define RDS_SCROLL_MS 600
-#define RDS_SCROLL_GAP 3
-#define RDS_SCROLL_PAUSE_TICKS 6
+#define RDS_SCROLL_MS 500
 #define RDS_SCROLL_STEP 2
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
@@ -138,7 +136,6 @@ bool rdsSynced = false;
 char rdsStation[9] = "";
 char rdsText[65] = "";
 uint8_t rdsScrollIndex = 0;
-uint8_t rdsScrollHold = 0;
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
@@ -229,7 +226,6 @@ void clearRdsData() {
   rdsStation[0] = '\0';
   rdsText[0] = '\0';
   rdsScrollIndex = 0;
-  rdsScrollHold = 0;
   rdsSynced = false;
 }
 
@@ -246,10 +242,8 @@ void buildRdsScrollLine(char *lineBuffer, size_t lineSize) {
     snprintf(lineBuffer, lineSize, "%s", rdsText);
     return;
   }
-  size_t virtualLen = textLen + RDS_SCROLL_GAP;
   for (uint8_t i = 0; i < 20; i++) {
-    size_t idx = (rdsScrollIndex + i) % virtualLen;
-    lineBuffer[i] = (idx < textLen) ? rdsText[idx] : ' ';
+    lineBuffer[i] = rdsText[rdsScrollIndex + i];
   }
   lineBuffer[20] = '\0';
 }
@@ -366,7 +360,6 @@ void refreshRdsStatus(bool force) {
     if (textBuffer[0] != '\0' && strcmp(rdsText, textBuffer) != 0) {
       snprintf(rdsText, sizeof(rdsText), "%s", textBuffer);
       rdsScrollIndex = 0;
-      rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
       updated = true;
     }
   }
@@ -374,6 +367,26 @@ void refreshRdsStatus(bool force) {
   if (updated) {
     showStatus();
   }
+}
+
+void updateRdsScroll() {
+  if (currentMode != MODE_FM || rdsText[0] == '\0') {
+    return;
+  }
+  uint32_t now = millis();
+  if ((now - lastRdsScroll) < RDS_SCROLL_MS) {
+    return;
+  }
+  lastRdsScroll = now;
+  size_t textLen = strlen(rdsText);
+  if (textLen <= 20) {
+    return;
+  }
+  rdsScrollIndex = rdsScrollIndex + RDS_SCROLL_STEP;
+  if (rdsScrollIndex > (textLen - 20)) {
+    rdsScrollIndex = 0;
+  }
+  showStatus();
 }
 
 void refreshSignalStatus(bool force) {
@@ -577,23 +590,5 @@ void loop() {
 
   refreshSignalStatus(false);
   refreshRdsStatus(false);
-  if (currentMode == MODE_FM && rdsText[0] != '\0') {
-    uint32_t nowScroll = millis();
-    if ((nowScroll - lastRdsScroll) > RDS_SCROLL_MS) {
-      lastRdsScroll = nowScroll;
-      size_t textLen = strlen(rdsText);
-      if (textLen > 20) {
-        size_t virtualLen = textLen + RDS_SCROLL_GAP;
-        if (rdsScrollHold > 0) {
-          rdsScrollHold--;
-        } else {
-          rdsScrollIndex = (rdsScrollIndex + RDS_SCROLL_STEP) % virtualLen;
-          if (rdsScrollIndex == 0 || rdsScrollIndex == (virtualLen - 20)) {
-            rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
-          }
-        }
-        showStatus();
-      }
-    }
-  }
+  updateRdsScroll();
 }

@@ -67,6 +67,8 @@
 #define RDS_UPDATE_MS 400
 #define RDS_SCROLL_MS 500
 #define RDS_SCROLL_STEP 2
+#define SSB_BANDWIDTH_IDX 2
+#define SSB_SOFT_MUTE_MAX_ATT 0
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -175,7 +177,7 @@ void IRAM_ATTR rotaryEncoder2() {
 
 void loadSSBPatch() {
   rx.setI2CFastModeCustom(400000);
-  rx.loadPatch(ssb_patch_content, ssb_patch_size, 2);
+  rx.loadPatch(ssb_patch_content, ssb_patch_size, SSB_BANDWIDTH_IDX);
   rx.setI2CFastModeCustom(100000);
   ssbLoaded = true;
 }
@@ -442,6 +444,14 @@ void applyMode() {
       currentSideband = LSB;
     }
     rx.setSSB(band.minFreq, band.maxFreq, band.currentFreq, amSteps[currentAmStepIdx], currentSideband);
+    rx.setSSBAutomaticVolumeControl(1);
+    rx.setSsbSoftMuteMaxAttenuation(SSB_SOFT_MUTE_MAX_ATT);
+    rx.setSSBAudioBandwidth(SSB_BANDWIDTH_IDX);
+    if (SSB_BANDWIDTH_IDX == 0 || SSB_BANDWIDTH_IDX == 4 || SSB_BANDWIDTH_IDX == 5) {
+      rx.setSSBSidebandCutoffFilter(0);
+    } else {
+      rx.setSSBSidebandCutoffFilter(1);
+    }
     if (band.bandType == SW_BAND_TYPE) {
       rx.setTuneFrequencyAntennaCapacitor(1);
     } else {

@@ -68,6 +68,7 @@ const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
 struct Band {
   const char *name;
+  uint8_t bandType;
   uint16_t minFreq;
   uint16_t maxFreq;
   uint16_t defaultFreq;
@@ -76,12 +77,12 @@ struct Band {
 };
 
 Band amBands[] = {
-  {"LW", 150, 283, 198, 0, 198},
-  {"MW", 520, 1710, 1000, 3, 1000},
-  {"40M", 7000, 7200, 7100, 1, 7100},
-  {"20M", 14000, 14350, 14200, 1, 14200},
-  {"15M", 21000, 21450, 21100, 1, 21100},
-  {"10M", 28000, 29700, 28400, 1, 28400}
+  {"LW", LW_BAND_TYPE, 150, 283, 198, 0, 198},
+  {"MW", MW_BAND_TYPE, 520, 1710, 1000, 3, 1000},
+  {"40M", SW_BAND_TYPE, 7000, 7200, 7100, 1, 7100},
+  {"20M", SW_BAND_TYPE, 14000, 14350, 14200, 1, 14200},
+  {"15M", SW_BAND_TYPE, 21000, 21450, 21100, 1, 21100},
+  {"10M", SW_BAND_TYPE, 28000, 29700, 28400, 1, 28400}
 };
 
 const uint8_t amBandCount = sizeof(amBands) / sizeof(amBands[0]);
@@ -109,6 +110,7 @@ uint8_t currentSideband = LSB;
 int16_t currentBfo = 0;
 uint16_t currentFrequency = fmCurrent;
 uint8_t seekDirection = 1;
+bool ssbLoaded = false;
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
@@ -147,6 +149,7 @@ void loadSSBPatch() {
   rx.setI2CFastModeCustom(400000);
   rx.loadPatch(ssb_patch_content, ssb_patch_size, 2);
   rx.setI2CFastModeCustom(100000);
+  ssbLoaded = true;
 }
 
 const char *modeLabel() {
@@ -200,24 +203,39 @@ void showStatus() {
 
 void applyMode() {
   if (currentMode == MODE_FM) {
+    ssbLoaded = false;
     rx.setFM(fmMin, fmMax, fmCurrent, fmSteps[currentFmStepIdx]);
     rx.setSeekFmLimits(fmMin, fmMax);
     rx.setSeekFmSpacing(fmSteps[currentFmStepIdx]);
     currentFrequency = fmCurrent;
   } else if (currentMode == MODE_AM) {
+    ssbLoaded = false;
     Band &band = amBands[currentBandIdx];
     rx.setAM(band.minFreq, band.maxFreq, band.currentFreq, amSteps[currentAmStepIdx]);
+    if (band.bandType == SW_BAND_TYPE) {
+      rx.setTuneFrequencyAntennaCapacitor(1);
+    } else {
+      rx.setTuneFrequencyAntennaCapacitor(0);
+    }
     rx.setSeekAmLimits(band.minFreq, band.maxFreq);
     rx.setSeekAmSpacing(5);
     currentFrequency = band.currentFreq;
   } else {
     Band &band = amBands[currentBandIdx];
+    if (!ssbLoaded) {
+      loadSSBPatch();
+    }
     if (band.minFreq >= 10000) {
       currentSideband = USB;
     } else {
       currentSideband = LSB;
     }
     rx.setSSB(band.minFreq, band.maxFreq, band.currentFreq, amSteps[currentAmStepIdx], currentSideband);
+    if (band.bandType == SW_BAND_TYPE) {
+      rx.setTuneFrequencyAntennaCapacitor(1);
+    } else {
+      rx.setTuneFrequencyAntennaCapacitor(0);
+    }
     currentFrequency = band.currentFreq;
     rx.setSSBBfo(currentBfo);
   }
@@ -295,8 +313,6 @@ void setup() {
   rx.setI2CFastModeCustom(100000);
   rx.getDeviceI2CAddress(RESET_PIN);
   rx.setup(RESET_PIN, FM_BAND_TYPE);
-
-  loadSSBPatch();
   applyMode();
   Serial.println("SI4735 ready");
 }

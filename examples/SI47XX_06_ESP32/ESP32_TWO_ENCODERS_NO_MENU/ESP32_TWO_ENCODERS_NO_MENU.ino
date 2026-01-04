@@ -66,6 +66,7 @@
 #define SIGNAL_UPDATE_MS 400
 #define RDS_UPDATE_MS 400
 #define RDS_SCROLL_MS 600
+#define RDS_SCROLL_GAP 3
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -229,12 +230,32 @@ void clearRdsData() {
   rdsSynced = false;
 }
 
+void buildRdsScrollLine(char *lineBuffer, size_t lineSize) {
+  if (lineSize == 0) {
+    return;
+  }
+  lineBuffer[0] = '\0';
+  size_t textLen = strlen(rdsText);
+  if (textLen == 0) {
+    return;
+  }
+  if (textLen <= 20) {
+    snprintf(lineBuffer, lineSize, "%s", rdsText);
+    return;
+  }
+  size_t virtualLen = textLen + RDS_SCROLL_GAP;
+  for (uint8_t i = 0; i < 20; i++) {
+    size_t idx = (rdsScrollIndex + i) % virtualLen;
+    lineBuffer[i] = (idx < textLen) ? rdsText[idx] : ' ';
+  }
+  lineBuffer[20] = '\0';
+}
+
 void showStatus() {
   char stepText[12];
   char bandText[12];
   char freqText[16];
   char signalText[20];
-  char signalRightText[12];
   char rdsLine[21];
   char bfoText[16];
   int16_t x1, y1;
@@ -267,29 +288,14 @@ void showStatus() {
 
   display.setTextSize(1);
   if (currentMode == MODE_FM) {
-    snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
-    snprintf(signalRightText, sizeof(signalRightText), "%s", currentStereo ? "ST" : "MO");
-    display.setCursor(0, 34);
-    display.print(signalText);
-    display.getTextBounds(signalRightText, 0, 0, &x1, &y1, &w, &h);
-    display.setCursor(128 - w, 34);
-    display.print(signalRightText);
-
-    if (rdsText[0] != '\0') {
-      size_t len = strlen(rdsText);
-      if (len <= 20) {
-        snprintf(rdsLine, sizeof(rdsLine), "%s", rdsText);
-      } else {
-        for (uint8_t i = 0; i < 20; i++) {
-          rdsLine[i] = rdsText[(rdsScrollIndex + i) % len];
-        }
-        rdsLine[20] = '\0';
-      }
+    if (rdsStation[0] != '\0') {
+      display.setCursor(0, 34);
+      display.print(rdsStation);
+    }
+    buildRdsScrollLine(rdsLine, sizeof(rdsLine));
+    if (rdsLine[0] != '\0') {
       display.setCursor(0, 48);
       display.print(rdsLine);
-    } else if (rdsStation[0] != '\0') {
-      display.setCursor(0, 48);
-      display.print(rdsStation);
     }
   } else {
     snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
@@ -569,8 +575,10 @@ void loop() {
     uint32_t nowScroll = millis();
     if ((nowScroll - lastRdsScroll) > RDS_SCROLL_MS) {
       lastRdsScroll = nowScroll;
-      if (strlen(rdsText) > 20) {
-        rdsScrollIndex = (rdsScrollIndex + 1) % strlen(rdsText);
+      size_t textLen = strlen(rdsText);
+      if (textLen > 20) {
+        size_t virtualLen = textLen + RDS_SCROLL_GAP;
+        rdsScrollIndex = (rdsScrollIndex + 1) % virtualLen;
         showStatus();
       }
     }

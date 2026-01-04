@@ -64,6 +64,8 @@
 
 #define DEBOUNCE_MS 200
 #define SIGNAL_UPDATE_MS 400
+#define RDS_UPDATE_MS 400
+#define RDS_SCROLL_MS 600
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -129,6 +131,10 @@ bool ssbLoaded = false;
 uint8_t currentRssi = 0;
 uint8_t currentSnr = 0;
 bool currentStereo = false;
+bool rdsSynced = false;
+char rdsStation[9] = "";
+char rdsText[65] = "";
+uint8_t rdsScrollIndex = 0;
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
@@ -136,6 +142,8 @@ uint32_t lastSeekPress = 0;
 uint32_t lastEnc1Press = 0;
 uint32_t lastEnc2Press = 0;
 uint32_t lastSignalUpdate = 0;
+uint32_t lastRdsUpdate = 0;
+uint32_t lastRdsScroll = 0;
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
@@ -185,11 +193,30 @@ uint16_t currentStep() {
   return (currentMode == MODE_FM) ? fmSteps[currentFmStepIdx] : amSteps[currentAmStepIdx];
 }
 
+void sanitizeRdsText(char *text) {
+  if (!text) {
+    return;
+  }
+  for (size_t i = 0; text[i] != '\0'; i++) {
+    if (text[i] < 32) {
+      text[i] = ' ';
+    }
+  }
+}
+
+void clearRdsData() {
+  rdsStation[0] = '\0';
+  rdsText[0] = '\0';
+  rdsScrollIndex = 0;
+  rdsSynced = false;
+}
+
 void showStatus() {
   char stepText[12];
   char bandText[12];
   char freqText[16];
   char signalText[20];
+  char rdsLine[21];
   char bfoText[16];
   int16_t x1, y1;
   uint16_t w, h;
@@ -220,11 +247,36 @@ void showStatus() {
   display.print(freqText);
 
   display.setTextSize(1);
+  if (currentMode == MODE_FM) {
+    if (rdsText[0] != '\0') {
+      size_t len = strlen(rdsText);
+      if (len <= 20) {
+        snprintf(rdsLine, sizeof(rdsLine), "%s", rdsText);
+      } else {
+        for (uint8_t i = 0; i < 20; i++) {
+          rdsLine[i] = rdsText[(rdsScrollIndex + i) % len];
+        }
+        rdsLine[20] = '\0';
+      }
+      display.setCursor(0, 34);
+      display.print(rdsLine);
+    } else if (rdsStation[0] != '\0') {
+      display.setCursor(0, 34);
+      display.print(rdsStation);
+    }
+  }
+
   snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
   display.setCursor(0, 42);
   display.print(signalText);
   if (currentMode == MODE_FM) {
-    display.print(currentStereo ? " ST" : " MO");
+    if (rdsStation[0] == '\0') {
+      display.print(currentStereo ? " ST" : " MO");
+    } else {
+      display.getTextBounds(rdsStation, 0, 0, &x1, &y1, &w, &h);
+      display.setCursor(128 - w, 42);
+      display.print(rdsStation);
+    }
   }
 
   if (currentMode == MODE_SSB) {
@@ -239,6 +291,55 @@ void showStatus() {
     display.fillRect(1, 57, min<uint16_t>(barWidth, 126), 6, SSD1306_WHITE);
   }
   display.display();
+}
+
+void refreshRdsStatus(bool force) {
+  if (currentMode != MODE_FM) {
+    return;
+  }
+  uint32_t now = millis();
+  if (!force && (now - lastRdsUpdate) < RDS_UPDATE_MS) {
+    return;
+  }
+  lastRdsUpdate = now;
+
+  rx.getRdsStatus();
+  if (!rx.getRdsReceived()) {
+    return;
+  }
+  if (!rx.getRdsSync() || rx.getNumRdsFifoUsed() == 0) {
+    if (rdsSynced) {
+      rdsSynced = false;
+      showStatus();
+    }
+    return;
+  }
+
+  bool updated = false;
+  rdsSynced = true;
+
+  char *stationName = rx.getRdsStationName();
+  if (stationName != nullptr) {
+    sanitizeRdsText(stationName);
+    if (strncmp(rdsStation, stationName, sizeof(rdsStation) - 1) != 0) {
+      snprintf(rdsStation, sizeof(rdsStation), "%s", stationName);
+      updated = true;
+    }
+  }
+
+  char *programInfo = rx.getRdsProgramInformation();
+  if (programInfo != nullptr) {
+    sanitizeRdsText(programInfo);
+    if (strncmp(rdsText, programInfo, sizeof(rdsText) - 1) != 0) {
+      snprintf(rdsText, sizeof(rdsText), "%s", programInfo);
+      rdsScrollIndex = 0;
+      updated = true;
+    }
+  }
+
+  if (updated) {
+    showStatus();
+  }
 }
 
 void refreshSignalStatus(bool force) {
@@ -265,9 +366,13 @@ void applyMode() {
     rx.setFM(fmMin, fmMax, fmCurrent, fmSteps[currentFmStepIdx]);
     rx.setSeekFmLimits(fmMin, fmMax);
     rx.setSeekFmSpacing(fmSteps[currentFmStepIdx]);
+    rx.setRdsConfig(1, 3, 3, 3, 3);
+    rx.setFifoCount(1);
     currentFrequency = fmCurrent;
+    clearRdsData();
   } else if (currentMode == MODE_AM) {
     ssbLoaded = false;
+    clearRdsData();
     Band &band = amBands[currentBandIdx];
     rx.setAM(band.minFreq, band.maxFreq, band.currentFreq, amSteps[currentAmStepIdx]);
     if (band.bandType == SW_BAND_TYPE) {
@@ -283,6 +388,7 @@ void applyMode() {
     if (!ssbLoaded) {
       loadSSBPatch();
     }
+    clearRdsData();
     if (band.minFreq >= 10000) {
       currentSideband = USB;
     } else {
@@ -311,6 +417,8 @@ void updateFrequency(int8_t direction) {
   currentFrequency = rx.getFrequency();
   if (currentMode == MODE_FM) {
     fmCurrent = currentFrequency;
+    clearRdsData();
+    rx.rdsClearFifo();
   } else {
     amBands[currentBandIdx].currentFreq = currentFrequency;
   }
@@ -334,6 +442,8 @@ void handleSeek() {
   currentFrequency = rx.getFrequency();
   if (currentMode == MODE_FM) {
     fmCurrent = currentFrequency;
+    clearRdsData();
+    rx.rdsClearFifo();
   } else {
     amBands[currentBandIdx].currentFreq = currentFrequency;
   }
@@ -432,4 +542,15 @@ void loop() {
   }
 
   refreshSignalStatus(false);
+  refreshRdsStatus(false);
+  if (currentMode == MODE_FM && rdsText[0] != '\0') {
+    uint32_t nowScroll = millis();
+    if ((nowScroll - lastRdsScroll) > RDS_SCROLL_MS) {
+      lastRdsScroll = nowScroll;
+      if (strlen(rdsText) > 20) {
+        rdsScrollIndex = (rdsScrollIndex + 1) % strlen(rdsText);
+        showStatus();
+      }
+    }
+  }
 }

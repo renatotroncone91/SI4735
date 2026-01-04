@@ -63,6 +63,7 @@
 #define USB 2
 
 #define DEBOUNCE_MS 200
+#define SIGNAL_UPDATE_MS 400
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -78,11 +79,25 @@ struct Band {
 
 Band amBands[] = {
   {"LW", LW_BAND_TYPE, 150, 283, 198, 0, 198},
-  {"MW", MW_BAND_TYPE, 520, 1710, 1000, 3, 1000},
-  {"40M", SW_BAND_TYPE, 7000, 7200, 7100, 1, 7100},
-  {"20M", SW_BAND_TYPE, 14000, 14350, 14200, 1, 14200},
-  {"15M", SW_BAND_TYPE, 21000, 21450, 21100, 1, 21100},
-  {"10M", SW_BAND_TYPE, 28000, 29700, 28400, 1, 28400}
+  {"MW1", MW_BAND_TYPE, 520, 1710, 1000, 3, 1000},
+  {"MW2", MW_BAND_TYPE, 531, 1701, 783, 2, 783},
+  {"MW3", MW_BAND_TYPE, 1700, 3500, 2500, 1, 2500},
+  {"80M", SW_BAND_TYPE, 3500, 4000, 3700, 1, 3700},
+  {"SW1", SW_BAND_TYPE, 4000, 5500, 4885, 1, 4885},
+  {"SW2", SW_BAND_TYPE, 5500, 6500, 6000, 1, 6000},
+  {"40M", SW_BAND_TYPE, 6500, 7300, 7100, 1, 7100},
+  {"SW3", SW_BAND_TYPE, 7200, 8000, 7200, 1, 7200},
+  {"SW4", SW_BAND_TYPE, 9000, 11000, 9500, 1, 9500},
+  {"SW5", SW_BAND_TYPE, 11100, 13000, 11900, 1, 11900},
+  {"SW6", SW_BAND_TYPE, 13000, 14000, 13500, 1, 13500},
+  {"20M", SW_BAND_TYPE, 14000, 15000, 14200, 1, 14200},
+  {"SW7", SW_BAND_TYPE, 15000, 17000, 15300, 1, 15300},
+  {"SW8", SW_BAND_TYPE, 17000, 18000, 17500, 1, 17500},
+  {"15M", SW_BAND_TYPE, 20000, 21400, 21100, 1, 21100},
+  {"SW9", SW_BAND_TYPE, 21400, 22800, 21500, 1, 21500},
+  {"CB", SW_BAND_TYPE, 26000, 28000, 27500, 1, 27500},
+  {"10M", SW_BAND_TYPE, 28000, 30000, 28400, 1, 28400},
+  {"ALL", SW_BAND_TYPE, 150, 30000, 15000, 3, 15000}
 };
 
 const uint8_t amBandCount = sizeof(amBands) / sizeof(amBands[0]);
@@ -111,12 +126,16 @@ int16_t currentBfo = 0;
 uint16_t currentFrequency = fmCurrent;
 uint8_t seekDirection = 1;
 bool ssbLoaded = false;
+uint8_t currentRssi = 0;
+uint8_t currentSnr = 0;
+bool currentStereo = false;
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
 uint32_t lastSeekPress = 0;
 uint32_t lastEnc1Press = 0;
 uint32_t lastEnc2Press = 0;
+uint32_t lastSignalUpdate = 0;
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
@@ -196,9 +215,37 @@ void showStatus() {
 
   display.setCursor(0, 48);
   display.setTextSize(1);
-  display.print("BFO: ");
-  display.print(currentBfo);
+  if (currentMode == MODE_SSB) {
+    display.print("BFO:");
+    display.print(currentBfo);
+    display.print(" ");
+  }
+  display.print("S:");
+  display.print(currentRssi);
+  display.print(" N:");
+  display.print(currentSnr);
+  if (currentMode == MODE_FM) {
+    display.print(currentStereo ? " ST" : " MO");
+  }
   display.display();
+}
+
+void refreshSignalStatus(bool force) {
+  uint32_t now = millis();
+  if (!force && (now - lastSignalUpdate) < SIGNAL_UPDATE_MS) {
+    return;
+  }
+  lastSignalUpdate = now;
+  rx.getCurrentReceivedSignalQuality();
+  uint8_t newRssi = rx.getCurrentRSSI();
+  uint8_t newSnr = rx.getCurrentSNR();
+  bool newStereo = (currentMode == MODE_FM) ? rx.getCurrentPilot() : false;
+  if (force || newRssi != currentRssi || newSnr != currentSnr || newStereo != currentStereo) {
+    currentRssi = newRssi;
+    currentSnr = newSnr;
+    currentStereo = newStereo;
+    showStatus();
+  }
 }
 
 void applyMode() {
@@ -239,7 +286,7 @@ void applyMode() {
     currentFrequency = band.currentFreq;
     rx.setSSBBfo(currentBfo);
   }
-  showStatus();
+  refreshSignalStatus(true);
 }
 
 void updateFrequency(int8_t direction) {
@@ -372,4 +419,6 @@ void loop() {
     lastSeekPress = now;
     handleSeek();
   }
+
+  refreshSignalStatus(false);
 }

@@ -216,6 +216,7 @@ void showStatus() {
   char bandText[12];
   char freqText[16];
   char signalText[20];
+  char signalRightText[12];
   char rdsLine[21];
   char bfoText[16];
   int16_t x1, y1;
@@ -248,6 +249,14 @@ void showStatus() {
 
   display.setTextSize(1);
   if (currentMode == MODE_FM) {
+    snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
+    snprintf(signalRightText, sizeof(signalRightText), "%s", currentStereo ? "ST" : "MO");
+    display.setCursor(0, 34);
+    display.print(signalText);
+    display.getTextBounds(signalRightText, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor(128 - w, 34);
+    display.print(signalRightText);
+
     if (rdsText[0] != '\0') {
       size_t len = strlen(rdsText);
       if (len <= 20) {
@@ -258,25 +267,16 @@ void showStatus() {
         }
         rdsLine[20] = '\0';
       }
-      display.setCursor(0, 34);
+      display.setCursor(0, 48);
       display.print(rdsLine);
     } else if (rdsStation[0] != '\0') {
-      display.setCursor(0, 34);
+      display.setCursor(0, 48);
       display.print(rdsStation);
     }
-  }
-
-  snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
-  display.setCursor(0, 42);
-  display.print(signalText);
-  if (currentMode == MODE_FM) {
-    if (rdsStation[0] == '\0') {
-      display.print(currentStereo ? " ST" : " MO");
-    } else {
-      display.getTextBounds(rdsStation, 0, 0, &x1, &y1, &w, &h);
-      display.setCursor(128 - w, 42);
-      display.print(rdsStation);
-    }
+  } else {
+    snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
+    display.setCursor(0, 42);
+    display.print(signalText);
   }
 
   if (currentMode == MODE_SSB) {
@@ -286,9 +286,11 @@ void showStatus() {
     display.print(bfoText);
   }
 
-  display.drawRect(0, 56, 128, 8, SSD1306_WHITE);
-  if (barWidth > 0) {
-    display.fillRect(1, 57, min<uint16_t>(barWidth, 126), 6, SSD1306_WHITE);
+  if (currentMode != MODE_FM) {
+    display.drawRect(0, 56, 128, 8, SSD1306_WHITE);
+    if (barWidth > 0) {
+      display.fillRect(1, 57, min<uint16_t>(barWidth, 126), 6, SSD1306_WHITE);
+    }
   }
   display.display();
 }

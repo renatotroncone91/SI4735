@@ -67,6 +67,7 @@
 #define RDS_UPDATE_MS 400
 #define RDS_SCROLL_MS 600
 #define RDS_SCROLL_GAP 3
+#define RDS_SCROLL_PAUSE_TICKS 6
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -136,6 +137,7 @@ bool rdsSynced = false;
 char rdsStation[9] = "";
 char rdsText[65] = "";
 uint8_t rdsScrollIndex = 0;
+uint8_t rdsScrollHold = 0;
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
@@ -227,6 +229,7 @@ void clearRdsData() {
   rdsStation[0] = '\0';
   rdsText[0] = '\0';
   rdsScrollIndex = 0;
+  rdsScrollHold = 0;
   rdsSynced = false;
 }
 
@@ -345,7 +348,7 @@ void refreshRdsStatus(bool force) {
   rdsSynced = true;
 
   char *stationName = rx.getRdsStationName();
-  if (stationName != nullptr) {
+  if (stationName != nullptr && rx.getRdsNewBlockA()) {
     char stationBuffer[9];
     normalizeRdsText(stationName, stationBuffer, sizeof(stationBuffer));
     if (stationBuffer[0] != '\0' && strcmp(rdsStation, stationBuffer) != 0) {
@@ -355,14 +358,16 @@ void refreshRdsStatus(bool force) {
   }
 
   char *programInfo = rx.getRdsProgramInformation();
-  if (programInfo != nullptr) {
+  if (programInfo != nullptr && (rx.getEndIndicatorGroupB() || rdsText[0] == '\0')) {
     char textBuffer[65];
     normalizeRdsText(programInfo, textBuffer, sizeof(textBuffer));
     if (textBuffer[0] != '\0' && strcmp(rdsText, textBuffer) != 0) {
       snprintf(rdsText, sizeof(rdsText), "%s", textBuffer);
       rdsScrollIndex = 0;
+      rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
       updated = true;
     }
+    rx.resetEndIndicatorGroupB();
   }
 
   if (updated) {
@@ -578,7 +583,14 @@ void loop() {
       size_t textLen = strlen(rdsText);
       if (textLen > 20) {
         size_t virtualLen = textLen + RDS_SCROLL_GAP;
-        rdsScrollIndex = (rdsScrollIndex + 1) % virtualLen;
+        if (rdsScrollHold > 0) {
+          rdsScrollHold--;
+        } else {
+          rdsScrollIndex = (rdsScrollIndex + 1) % virtualLen;
+          if (rdsScrollIndex == 0 || rdsScrollIndex == (virtualLen - 20)) {
+            rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
+          }
+        }
         showStatus();
       }
     }

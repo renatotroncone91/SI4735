@@ -313,6 +313,7 @@ void setup() {
   rx.setI2CFastModeCustom(100000);
   rx.getDeviceI2CAddress(RESET_PIN);
   rx.setup(RESET_PIN, FM_BAND_TYPE);
+  rx.setVolume(63);
   applyMode();
   Serial.println("SI4735 ready");
 }

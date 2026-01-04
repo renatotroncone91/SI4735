@@ -186,53 +186,57 @@ uint16_t currentStep() {
 }
 
 void showStatus() {
-  uint8_t barSegments = min<uint8_t>(currentRssi / 6, 15);
-  uint8_t barWidth = barSegments * 4;
+  char stepText[12];
+  char bandText[12];
+  char freqText[16];
+  char signalText[20];
+  char bfoText[16];
+  int16_t x1, y1;
+  uint16_t w, h;
+  uint16_t barWidth = min<uint16_t>(static_cast<uint16_t>(currentRssi) * 2, 126);
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
   display.setTextSize(1);
-  display.print("Mode: ");
+  display.setCursor(0, 0);
   display.print(modeLabel());
-  display.print("  Step: ");
-  display.print(currentStep());
+  display.print(" B:");
+  snprintf(bandText, sizeof(bandText), "%s", (currentMode == MODE_FM) ? "FM" : amBands[currentBandIdx].name);
+  display.print(bandText);
 
-  display.setCursor(0, 12);
-  display.print("Band: ");
-  if (currentMode == MODE_FM) {
-    display.print("FM");
-  } else {
-    display.print(amBands[currentBandIdx].name);
-  }
+  snprintf(stepText, sizeof(stepText), "Stp:%u", currentStep());
+  display.getTextBounds(stepText, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor(128 - w, 0);
+  display.print(stepText);
 
-  display.setCursor(0, 24);
   display.setTextSize(2);
   if (currentMode == MODE_FM) {
-    display.print(currentFrequency / 100.0, 1);
-    display.print(" MHz");
+    snprintf(freqText, sizeof(freqText), "%.1f MHz", currentFrequency / 100.0);
   } else {
-    display.print(currentFrequency);
-    display.print(" kHz");
+    snprintf(freqText, sizeof(freqText), "%u kHz", currentFrequency);
   }
+  display.getTextBounds(freqText, 0, 0, &x1, &y1, &w, &h);
+  display.setCursor((128 - w) / 2, 14);
+  display.print(freqText);
 
-  display.setCursor(0, 48);
   display.setTextSize(1);
-  if (currentMode == MODE_SSB) {
-    display.print("BFO:");
-    display.print(currentBfo);
-    display.print(" ");
-  }
-  display.print("S:");
-  display.print(currentRssi);
-  display.print(" N:");
-  display.print(currentSnr);
+  snprintf(signalText, sizeof(signalText), "S:%u N:%u", currentRssi, currentSnr);
+  display.setCursor(0, 42);
+  display.print(signalText);
   if (currentMode == MODE_FM) {
     display.print(currentStereo ? " ST" : " MO");
   }
-  display.drawRect(0, 58, 64, 6, SSD1306_WHITE);
+
+  if (currentMode == MODE_SSB) {
+    snprintf(bfoText, sizeof(bfoText), "BFO:%d", currentBfo);
+    display.getTextBounds(bfoText, 0, 0, &x1, &y1, &w, &h);
+    display.setCursor(128 - w, 42);
+    display.print(bfoText);
+  }
+
+  display.drawRect(0, 56, 128, 8, SSD1306_WHITE);
   if (barWidth > 0) {
-    display.fillRect(1, 59, min<uint8_t>(barWidth, 62), 4, SSD1306_WHITE);
+    display.fillRect(1, 57, min<uint16_t>(barWidth, 126), 6, SSD1306_WHITE);
   }
   display.display();
 }

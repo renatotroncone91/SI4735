@@ -68,6 +68,7 @@
 #define RDS_SCROLL_MS 600
 #define RDS_SCROLL_GAP 3
 #define RDS_SCROLL_PAUSE_TICKS 6
+#define RDS_SCROLL_STEP 2
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
 
@@ -196,33 +197,32 @@ uint16_t currentStep() {
   return (currentMode == MODE_FM) ? fmSteps[currentFmStepIdx] : amSteps[currentAmStepIdx];
 }
 
-void normalizeRdsText(const char *input, char *output, size_t outputSize) {
+void sanitizeRdsText(const char *input, char *output, size_t outputSize) {
   if (!input || outputSize == 0) {
     return;
   }
   size_t outIndex = 0;
-  bool lastWasSpace = true;
-
   for (size_t i = 0; input[i] != '\0' && outIndex < outputSize - 1; i++) {
     char c = input[i];
     if (c < 32) {
       c = ' ';
     }
-    if (c == ' ') {
-      if (lastWasSpace) {
-        continue;
-      }
-      lastWasSpace = true;
-    } else {
-      lastWasSpace = false;
-    }
     output[outIndex++] = c;
   }
-
-  while (outIndex > 0 && output[outIndex - 1] == ' ') {
-    outIndex--;
-  }
   output[outIndex] = '\0';
+
+  size_t start = 0;
+  while (output[start] == ' ' && output[start] != '\0') {
+    start++;
+  }
+  if (start > 0) {
+    memmove(output, output + start, outIndex - start + 1);
+  }
+  size_t len = strlen(output);
+  while (len > 0 && output[len - 1] == ' ') {
+    output[len - 1] = '\0';
+    len--;
+  }
 }
 
 void clearRdsData() {
@@ -348,9 +348,9 @@ void refreshRdsStatus(bool force) {
   rdsSynced = true;
 
   char *stationName = rx.getRdsStationName();
-  if (stationName != nullptr && rx.getRdsNewBlockA()) {
+  if (stationName != nullptr) {
     char stationBuffer[9];
-    normalizeRdsText(stationName, stationBuffer, sizeof(stationBuffer));
+    sanitizeRdsText(stationName, stationBuffer, sizeof(stationBuffer));
     if (stationBuffer[0] != '\0' && strcmp(rdsStation, stationBuffer) != 0) {
       snprintf(rdsStation, sizeof(rdsStation), "%s", stationBuffer);
       updated = true;
@@ -358,16 +358,15 @@ void refreshRdsStatus(bool force) {
   }
 
   char *programInfo = rx.getRdsProgramInformation();
-  if (programInfo != nullptr && (rx.getEndIndicatorGroupB() || rdsText[0] == '\0')) {
+  if (programInfo != nullptr) {
     char textBuffer[65];
-    normalizeRdsText(programInfo, textBuffer, sizeof(textBuffer));
+    sanitizeRdsText(programInfo, textBuffer, sizeof(textBuffer));
     if (textBuffer[0] != '\0' && strcmp(rdsText, textBuffer) != 0) {
       snprintf(rdsText, sizeof(rdsText), "%s", textBuffer);
       rdsScrollIndex = 0;
       rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
       updated = true;
     }
-    rx.resetEndIndicatorGroupB();
   }
 
   if (updated) {
@@ -586,7 +585,7 @@ void loop() {
         if (rdsScrollHold > 0) {
           rdsScrollHold--;
         } else {
-          rdsScrollIndex = (rdsScrollIndex + 1) % virtualLen;
+          rdsScrollIndex = (rdsScrollIndex + RDS_SCROLL_STEP) % virtualLen;
           if (rdsScrollIndex == 0 || rdsScrollIndex == (virtualLen - 20)) {
             rdsScrollHold = RDS_SCROLL_PAUSE_TICKS;
           }

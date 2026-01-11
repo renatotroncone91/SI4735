@@ -57,6 +57,7 @@ uint32_t lastSeekPress = 0;
 uint32_t lastEnc1Press = 0;
 uint32_t lastEnc2Press = 0;
 uint32_t lastSignalUpdate = 0;
+uint32_t enc1PressStart = 0;
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
@@ -67,6 +68,9 @@ Rotary encoder2 = Rotary(ENCODER2_PIN_A, ENCODER2_PIN_B);
 SI4735 rx;
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire);
 WebServer server(80);
+
+bool menuVisible = false;
+String wifiIp = "";
 
 const char indexHtml[] PROGMEM = R"HTML(
 <!doctype html>
@@ -135,6 +139,8 @@ const char indexHtml[] PROGMEM = R"HTML(
 </html>
 )HTML";
 
+String currentFrequencyText();
+
 void IRAM_ATTR rotaryEncoder1() {
   unsigned char result = encoder1.process();
   if (result == DIR_CW) {
@@ -188,6 +194,31 @@ void showStatus() {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
+
+  if (menuVisible) {
+    display.setCursor(0, 0);
+    display.print("MENU");
+    display.setCursor(0, 12);
+    display.print("WiFi: ");
+    display.print(WIFI_SSID);
+    display.setCursor(0, 22);
+    display.print("IP: ");
+    display.print(wifiIp.length() ? wifiIp : "-");
+    display.setCursor(0, 32);
+    display.print("Modo: ");
+    display.print(modeLabel());
+    display.setCursor(0, 42);
+    display.print("Freq: ");
+    display.print(currentFrequencyText());
+    display.print(currentMode == MODE_FM ? "MHz" : "kHz");
+    display.setCursor(0, 52);
+    display.print("RSSI ");
+    display.print(currentRssi);
+    display.print(" SNR ");
+    display.print(currentSnr);
+    display.display();
+    return;
+  }
   display.setCursor(0, 0);
   display.print(modeLabel());
   display.print(" B:");
@@ -436,8 +467,9 @@ void setupWifi() {
   }
   Serial.println();
   if (WiFi.status() == WL_CONNECTED) {
+    wifiIp = WiFi.localIP().toString();
     Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
+    Serial.println(wifiIp);
   } else {
     Serial.println("WiFi non connesso");
   }
@@ -542,15 +574,28 @@ void loop() {
   uint32_t now = millis();
 
   if (digitalRead(ENCODER1_PUSH_BUTTON) == LOW && (now - lastEnc1Press) > DEBOUNCE_MS) {
-    lastEnc1Press = now;
-    if (currentMode == MODE_FM) {
-      currentFmStepIdx = (currentFmStepIdx + 1) % fmStepCount;
-      rx.setFrequencyStep(fmSteps[currentFmStepIdx]);
-    } else {
-      currentAmStepIdx = (currentAmStepIdx + 1) % amStepCount;
-      rx.setFrequencyStep(amSteps[currentAmStepIdx]);
+    if (enc1PressStart == 0) {
+      enc1PressStart = now;
+    } else if ((now - enc1PressStart) > LONG_PRESS_MS) {
+      menuVisible = !menuVisible;
+      enc1PressStart = 0;
+      lastEnc1Press = now;
+      showStatus();
     }
-    showStatus();
+  } else if (enc1PressStart != 0) {
+    uint32_t pressDuration = now - enc1PressStart;
+    enc1PressStart = 0;
+    if (pressDuration < LONG_PRESS_MS) {
+      lastEnc1Press = now;
+      if (currentMode == MODE_FM) {
+        currentFmStepIdx = (currentFmStepIdx + 1) % fmStepCount;
+        rx.setFrequencyStep(fmSteps[currentFmStepIdx]);
+      } else {
+        currentAmStepIdx = (currentAmStepIdx + 1) % amStepCount;
+        rx.setFrequencyStep(amSteps[currentAmStepIdx]);
+      }
+      showStatus();
+    }
   }
 
   if (digitalRead(ENCODER2_PUSH_BUTTON) == LOW && (now - lastEnc2Press) > DEBOUNCE_MS) {

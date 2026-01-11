@@ -48,6 +48,7 @@
 
 // Tempi
 #define DEBOUNCE_MS 200
+#define LONG_PRESS_MS 1200
 #define SIGNAL_UPDATE_MS 400
 #define RDS_UPDATE_MS 400
 #define RDS_SCROLL_MS 500

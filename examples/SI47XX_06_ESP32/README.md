@@ -17,12 +17,20 @@ Before starting compiling ESP32 based sketches, you must configure your Arduino 
 * If you are using other versions of the ESP32 (ESP32S3, ESP32C3 etc), please check its pinout before. In general the pin setup are not the same shown here.
 
 
-#### If you use the arduino-cli, you can follow the steps below:
+#### Se usi arduino-cli, puoi seguire questi passi:
 
 ```bash
 $ arduino-cli config set board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 $ arduino-cli core update-index
 $ arduino-cli core install esp32:esp32
+```
+
+#### Se usi PlatformIO
+
+Assicurati di avere `platformio.ini` configurato con lo sketch ESP32 desiderato e con le dipendenze corrette. Dopo di che, puoi compilare con:
+
+```bash
+$ pio run -e esp32dev
 ```
 
 
@@ -95,7 +103,7 @@ However, you have pay attention to the new configuration pins on ESP32. See tabl
 | GPIO   | Used as  | Constant number (#define)| Function Description |
 | ------ | -------- | ------------------ | ----------- |
 | GPIO32 | Capacitive | 32 (GPIO32) | Switch MODE (Am/LSB/USB) |
-| GPIO33 | Capacitive | 33 (GPIO33) | Used to select the banddwith. Values: 1.2, 2.2, 3.0, 4.0, 0.5, 1.0 kHz |
+| GPIO33 | Capacitive | 33 (GPIO33) | Used to select the bandwidth. Values: 1.2, 2.2, 3.0, 4.0, 0.5, 1.0 kHz |
 | GPIO27 | Capacitive | 27 (GPIO27) | Volume Up |
 | GPIO14 | Capacitive | 14 (GPIO14) | Volume Down |
 | GPIO12 | Capacitive | 12 (GPIO12) | Switch to the next band |
@@ -114,7 +122,7 @@ However, you have pay attention to the new configuration pins on ESP32. See tabl
 
 
 
-It seams that in some ESP32 board, the I2C bus is not configured prorpelly by default. However, you can set almost any pin on ESP32 to setup I2C capabilities. All you have to do is call __Wire.begin(SDA, SCL);__ where SDA and SCL are the ESP32 GPIO pins. The code below shows that.
+It seams that in some ESP32 board, the I2C bus is not configured properly by default. However, you can set almost any pin on ESP32 to setup I2C capabilities. All you have to do is call __Wire.begin(SDA, SCL);__ where SDA and SCL are the ESP32 GPIO pins. The code below shows that.
 
 ```cpp
 // I2C bus pin on ESP32
@@ -179,7 +187,7 @@ ESP32 Wire up with LCD, encoder/pushbutton and SI4735-D60
 |                           | SCLK (pin 17)                 |  GPIO22       |
 |                           | (*1)SEN (pin 16)              |  +Vcc or GND  |
 |    Encoder                |                               |               |
-|                           | A                             |  CPIO13       |
+|                           | A                             |  GPIO13       |
 |                           | B                             |  GPIO14       |
 |                           | PUSH BUTTON (encoder)         |  GPIO27       |
 

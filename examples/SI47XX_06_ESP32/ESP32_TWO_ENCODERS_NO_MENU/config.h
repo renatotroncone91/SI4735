@@ -28,6 +28,10 @@
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
 
+// WiFi
+#define WIFI_SSID "Casa"
+#define WIFI_PASSWORD "04071991"
+
 // Tipi banda
 #define FM_BAND_TYPE 0
 #define MW_BAND_TYPE 1

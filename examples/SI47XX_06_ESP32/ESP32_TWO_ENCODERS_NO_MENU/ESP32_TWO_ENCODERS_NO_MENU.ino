@@ -1,24 +1,24 @@
 /*
-  ESP32 sketch: simple control for SI4735 with two encoders + 3 buttons (no menu).
+  Radio ESP32 SI4735 con due encoder, tre pulsanti e OLED (senza menu).
 
-  Controls
-  - Encoder 1: VFO (frequency)
-    * Push: cycle tuning step
-  - Encoder 2: BFO (SSB only)
-    * Push: cycle BFO step
-  - MODE button: cycle FM -> AM -> SSB
-  - BAND button: next AM/SSB band
-  - SEEK button: auto seek (FM/AM only)
+  Controlli
+  - Encoder 1: VFO (frequenza)
+    * Pressione: cambio step di sintonia
+  - Encoder 2: BFO (solo SSB)
+    * Pressione: cambio step BFO
+  - Pulsante MODE: ciclo FM -> AM -> SSB
+  - Pulsante BAND: banda successiva in AM/SSB
+  - Pulsante SEEK: ricerca automatica (solo FM/AM)
 
-  Wiring (ESP32)
+  Collegamenti (ESP32)
   RESET_PIN 12
   Encoder 1: A 26, B 27, SW 14
   Encoder 2: A 25, B 33, SW 23
   I2C: SDA 21, SCL 22
   OLED I2C 128x64: SDA 21, SCL 22 (addr 0x3C)
-  Buttons: BAND 32, MODE 13, SEEK 15 (INPUT_PULLUP)
+  Pulsanti: BAND 32, MODE 13, SEEK 15 (INPUT_PULLUP)
 
-  NOTE: This sketch uses the PU2CLR SI4735 library.
+  NOTA: sketch basato sulla libreria PU2CLR SI4735.
 */
 #include <Wire.h>
 #include <Adafruit_GFX.h>
@@ -26,100 +26,12 @@
 #include <SI4735.h>
 #include "Rotary.h"
 #include <patch_init.h>
-
-#define RESET_PIN 12
-
-// Encoder PINs
-#define ENCODER1_PIN_A 26
-#define ENCODER1_PIN_B 27
-#define ENCODER1_PUSH_BUTTON 14
-
-#define ENCODER2_PIN_A 25
-#define ENCODER2_PIN_B 33
-#define ENCODER2_PUSH_BUTTON 23
-
-// I2C bus pin on ESP32
-#define ESP32_I2C_SDA 21
-#define ESP32_I2C_SCL 22
-
-// Buttons (internal pull-ups)
-#define BAND_BUTTON_PIN 32
-#define MODE_BUTTON_PIN 13
-#define SEEK_BUTTON_PIN 15
-
-#define OLED_WIDTH 128
-#define OLED_HEIGHT 64
-
-#define FM_BAND_TYPE 0
-#define MW_BAND_TYPE 1
-#define SW_BAND_TYPE 2
-#define LW_BAND_TYPE 3
-
-#define MODE_FM 0
-#define MODE_AM 1
-#define MODE_SSB 2
-
-#define LSB 1
-#define USB 2
-
-#define DEBOUNCE_MS 200
-#define SIGNAL_UPDATE_MS 400
-#define RDS_UPDATE_MS 400
-#define RDS_SCROLL_MS 500
-#define RDS_SCROLL_STEP 2
-#define SSB_BANDWIDTH_IDX 2
-#define SSB_SOFT_MUTE_MAX_ATT 0
+#include "config.h"
+#include "rds_helpers.h"
 
 const uint16_t ssb_patch_size = sizeof ssb_patch_content;
-
-struct Band {
-  const char *name;
-  uint8_t bandType;
-  uint16_t minFreq;
-  uint16_t maxFreq;
-  uint16_t defaultFreq;
-  uint8_t defaultStepIdx;
-  uint16_t currentFreq;
-};
-
-Band amBands[] = {
-  {"LW", LW_BAND_TYPE, 150, 283, 198, 0, 198},
-  {"MW", MW_BAND_TYPE, 520, 1710, 1000, 3, 1000},
-  {"MW-EU", MW_BAND_TYPE, 531, 1701, 783, 2, 783},
-  {"160M", MW_BAND_TYPE, 1700, 3500, 2500, 1, 2500},
-  {"80M", SW_BAND_TYPE, 3500, 4000, 3700, 1, 3700},
-  {"SW4-5", SW_BAND_TYPE, 4000, 5500, 4885, 1, 4885},
-  {"SW5-6", SW_BAND_TYPE, 5500, 6500, 6000, 1, 6000},
-  {"40M", SW_BAND_TYPE, 6500, 7300, 7100, 1, 7100},
-  {"SW7-8", SW_BAND_TYPE, 7200, 8000, 7200, 1, 7200},
-  {"SW9-11", SW_BAND_TYPE, 9000, 11000, 9500, 1, 9500},
-  {"SW11-13", SW_BAND_TYPE, 11100, 13000, 11900, 1, 11900},
-  {"SW13-14", SW_BAND_TYPE, 13000, 14000, 13500, 1, 13500},
-  {"20M", SW_BAND_TYPE, 14000, 15000, 14200, 1, 14200},
-  {"SW15-17", SW_BAND_TYPE, 15000, 17000, 15300, 1, 15300},
-  {"SW17-18", SW_BAND_TYPE, 17000, 18000, 17500, 1, 17500},
-  {"15M", SW_BAND_TYPE, 20000, 21400, 21100, 1, 21100},
-  {"SW21-22", SW_BAND_TYPE, 21400, 22800, 21500, 1, 21500},
-  {"CB", SW_BAND_TYPE, 26000, 28000, 27500, 1, 27500},
-  {"10M", SW_BAND_TYPE, 28000, 30000, 28400, 1, 28400},
-  {"ALL", SW_BAND_TYPE, 150, 30000, 15000, 3, 15000}
-};
-
-const uint8_t amBandCount = sizeof(amBands) / sizeof(amBands[0]);
 uint8_t currentBandIdx = 1;
-
-const uint16_t fmMin = 6400;
-const uint16_t fmMax = 10800;
 uint16_t fmCurrent = 10000;
-
-const uint16_t amSteps[] = {1, 5, 9, 10, 50, 100};
-const uint8_t amStepCount = sizeof(amSteps) / sizeof(amSteps[0]);
-
-const uint16_t fmSteps[] = {5, 10, 50, 100};
-const uint8_t fmStepCount = sizeof(fmSteps) / sizeof(fmSteps[0]);
-
-const int16_t bfoSteps[] = {10, 50, 100};
-const uint8_t bfoStepCount = sizeof(bfoSteps) / sizeof(bfoSteps[0]);
 
 uint8_t currentMode = MODE_FM;
 uint8_t currentAmStepIdx = 3;
@@ -134,10 +46,8 @@ bool ssbLoaded = false;
 uint8_t currentRssi = 0;
 uint8_t currentSnr = 0;
 bool currentStereo = false;
-bool rdsSynced = false;
-char rdsStation[9] = "";
-char rdsText[65] = "";
-uint8_t rdsScrollIndex = 0;
+
+RdsState rdsState = {};
 
 uint32_t lastModePress = 0;
 uint32_t lastBandPress = 0;
@@ -145,8 +55,6 @@ uint32_t lastSeekPress = 0;
 uint32_t lastEnc1Press = 0;
 uint32_t lastEnc2Press = 0;
 uint32_t lastSignalUpdate = 0;
-uint32_t lastRdsUpdate = 0;
-uint32_t lastRdsScroll = 0;
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
@@ -196,60 +104,6 @@ uint16_t currentStep() {
   return (currentMode == MODE_FM) ? fmSteps[currentFmStepIdx] : amSteps[currentAmStepIdx];
 }
 
-void sanitizeRdsText(const char *input, char *output, size_t outputSize) {
-  if (!input || outputSize == 0) {
-    return;
-  }
-  size_t outIndex = 0;
-  for (size_t i = 0; input[i] != '\0' && outIndex < outputSize - 1; i++) {
-    char c = input[i];
-    if (c < 32) {
-      c = ' ';
-    }
-    output[outIndex++] = c;
-  }
-  output[outIndex] = '\0';
-
-  size_t start = 0;
-  while (output[start] == ' ' && output[start] != '\0') {
-    start++;
-  }
-  if (start > 0) {
-    memmove(output, output + start, outIndex - start + 1);
-  }
-  size_t len = strlen(output);
-  while (len > 0 && output[len - 1] == ' ') {
-    output[len - 1] = '\0';
-    len--;
-  }
-}
-
-void clearRdsData() {
-  rdsStation[0] = '\0';
-  rdsText[0] = '\0';
-  rdsScrollIndex = 0;
-  rdsSynced = false;
-}
-
-void buildRdsScrollLine(char *lineBuffer, size_t lineSize) {
-  if (lineSize == 0) {
-    return;
-  }
-  lineBuffer[0] = '\0';
-  size_t textLen = strlen(rdsText);
-  if (textLen == 0) {
-    return;
-  }
-  if (textLen <= 20) {
-    snprintf(lineBuffer, lineSize, "%s", rdsText);
-    return;
-  }
-  for (uint8_t i = 0; i < 20; i++) {
-    lineBuffer[i] = rdsText[rdsScrollIndex + i];
-  }
-  lineBuffer[20] = '\0';
-}
-
 void showStatus() {
   char stepText[12];
   char bandText[12];
@@ -287,13 +141,13 @@ void showStatus() {
 
   display.setTextSize(1);
   if (currentMode == MODE_FM) {
-    if (rdsStation[0] != '\0') {
+    if (rdsState.station[0] != '\0') {
       display.setTextSize(2);
       display.setCursor(0, 32);
-      display.print(rdsStation);
+      display.print(rdsState.station);
       display.setTextSize(1);
     }
-    buildRdsScrollLine(rdsLine, sizeof(rdsLine));
+    buildRdsScrollLine(rdsState, rdsLine, sizeof(rdsLine));
     if (rdsLine[0] != '\0') {
       display.setCursor(0, 52);
       display.print(rdsLine);
@@ -318,77 +172,6 @@ void showStatus() {
     }
   }
   display.display();
-}
-
-void refreshRdsStatus(bool force) {
-  if (currentMode != MODE_FM) {
-    return;
-  }
-  uint32_t now = millis();
-  if (!force && (now - lastRdsUpdate) < RDS_UPDATE_MS) {
-    return;
-  }
-  lastRdsUpdate = now;
-
-  rx.getRdsStatus();
-  if (!rx.getRdsReceived()) {
-    return;
-  }
-  if (!rx.getRdsSync() || rx.getNumRdsFifoUsed() == 0) {
-    if (rdsSynced) {
-      rdsSynced = false;
-      showStatus();
-    }
-    return;
-  }
-
-  bool updated = false;
-  rdsSynced = true;
-
-  char *stationName = rx.getRdsStationName();
-  if (stationName != nullptr) {
-    char stationBuffer[9];
-    sanitizeRdsText(stationName, stationBuffer, sizeof(stationBuffer));
-    if (stationBuffer[0] != '\0' && strcmp(rdsStation, stationBuffer) != 0) {
-      snprintf(rdsStation, sizeof(rdsStation), "%s", stationBuffer);
-      updated = true;
-    }
-  }
-
-  char *programInfo = rx.getRdsProgramInformation();
-  if (programInfo != nullptr) {
-    char textBuffer[65];
-    sanitizeRdsText(programInfo, textBuffer, sizeof(textBuffer));
-    if (textBuffer[0] != '\0' && strcmp(rdsText, textBuffer) != 0) {
-      snprintf(rdsText, sizeof(rdsText), "%s", textBuffer);
-      rdsScrollIndex = 0;
-      updated = true;
-    }
-  }
-
-  if (updated) {
-    showStatus();
-  }
-}
-
-void updateRdsScroll() {
-  if (currentMode != MODE_FM || rdsText[0] == '\0') {
-    return;
-  }
-  uint32_t now = millis();
-  if ((now - lastRdsScroll) < RDS_SCROLL_MS) {
-    return;
-  }
-  lastRdsScroll = now;
-  size_t textLen = strlen(rdsText);
-  if (textLen <= 20) {
-    return;
-  }
-  rdsScrollIndex = rdsScrollIndex + RDS_SCROLL_STEP;
-  if (rdsScrollIndex > (textLen - 20)) {
-    rdsScrollIndex = 0;
-  }
-  showStatus();
 }
 
 void refreshSignalStatus(bool force) {
@@ -418,10 +201,10 @@ void applyMode() {
     rx.setRdsConfig(1, 3, 3, 3, 3);
     rx.setFifoCount(1);
     currentFrequency = fmCurrent;
-    clearRdsData();
+    resetRdsState(rdsState);
   } else if (currentMode == MODE_AM) {
     ssbLoaded = false;
-    clearRdsData();
+    resetRdsState(rdsState);
     Band &band = amBands[currentBandIdx];
     rx.setAM(band.minFreq, band.maxFreq, band.currentFreq, amSteps[currentAmStepIdx]);
     if (band.bandType == SW_BAND_TYPE) {
@@ -437,7 +220,7 @@ void applyMode() {
     if (!ssbLoaded) {
       loadSSBPatch();
     }
-    clearRdsData();
+    resetRdsState(rdsState);
     if (band.minFreq >= 10000) {
       currentSideband = USB;
     } else {
@@ -474,7 +257,7 @@ void updateFrequency(int8_t direction) {
   currentFrequency = rx.getFrequency();
   if (currentMode == MODE_FM) {
     fmCurrent = currentFrequency;
-    clearRdsData();
+    resetRdsState(rdsState);
     rx.rdsClearFifo();
   } else {
     amBands[currentBandIdx].currentFreq = currentFrequency;
@@ -499,7 +282,7 @@ void handleSeek() {
   currentFrequency = rx.getFrequency();
   if (currentMode == MODE_FM) {
     fmCurrent = currentFrequency;
-    clearRdsData();
+    resetRdsState(rdsState);
     rx.rdsClearFifo();
   } else {
     amBands[currentBandIdx].currentFreq = currentFrequency;
@@ -539,6 +322,7 @@ void setup() {
   rx.getDeviceI2CAddress(RESET_PIN);
   rx.setup(RESET_PIN, FM_BAND_TYPE);
   rx.setVolume(63);
+  resetRdsState(rdsState);
   applyMode();
   Serial.println("SI4735 ready");
 }
@@ -599,6 +383,12 @@ void loop() {
   }
 
   refreshSignalStatus(false);
-  refreshRdsStatus(false);
-  updateRdsScroll();
+  if (currentMode == MODE_FM) {
+    if (refreshRdsStatus(rx, rdsState, false)) {
+      showStatus();
+    }
+    if (updateRdsScroll(rdsState)) {
+      showStatus();
+    }
+  }
 }

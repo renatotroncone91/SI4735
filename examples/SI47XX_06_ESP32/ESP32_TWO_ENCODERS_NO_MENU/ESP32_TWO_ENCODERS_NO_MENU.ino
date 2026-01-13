@@ -21,6 +21,8 @@
   NOTA: sketch basato sulla libreria PU2CLR SI4735.
 */
 #include <Wire.h>
+#include <WiFi.h>
+#include <WebServer.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <SI4735.h>
@@ -55,6 +57,7 @@ uint32_t lastSeekPress = 0;
 uint32_t lastEnc1Press = 0;
 uint32_t lastEnc2Press = 0;
 uint32_t lastSignalUpdate = 0;
+uint32_t enc1PressStart = 0;
 
 volatile int encoderCount1 = 0;
 volatile int encoderCount2 = 0;
@@ -64,6 +67,79 @@ Rotary encoder2 = Rotary(ENCODER2_PIN_A, ENCODER2_PIN_B);
 
 SI4735 rx;
 Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire);
+WebServer server(80);
+
+bool menuVisible = false;
+String wifiIp = "";
+
+const char indexHtml[] PROGMEM = R"HTML(
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SI4735 ESP32</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; background: #0b0d10; color: #f5f7fa; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    button { padding: 10px 14px; border: 0; border-radius: 6px; background: #2d6cdf; color: #fff; }
+    button.secondary { background: #3a3f46; }
+    input[type="number"] { width: 120px; padding: 8px; border-radius: 6px; border: 1px solid #444; background: #15181d; color: #fff; }
+    .card { background: #15181d; border: 1px solid #2b2f36; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
+    .label { color: #9aa4b2; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+    .value { font-size: 20px; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Radio SI4735</h1>
+  <div class="card">
+    <div class="label">Stato</div>
+    <div class="value" id="status">-</div>
+  </div>
+  <div class="row">
+    <button onclick="cmd('mode','FM')">FM</button>
+    <button onclick="cmd('mode','AM')">AM</button>
+    <button onclick="cmd('mode','SSB')">SSB</button>
+    <button class="secondary" onclick="cmd('band','next')">Banda +</button>
+    <button class="secondary" onclick="cmd('seek','1')">Seek</button>
+  </div>
+  <div class="row">
+    <button onclick="cmd('freq','up')">Freq +</button>
+    <button onclick="cmd('freq','down')">Freq -</button>
+    <button onclick="cmd('bfo','up')">BFO +</button>
+    <button onclick="cmd('bfo','down')">BFO -</button>
+  </div>
+  <div class="row">
+    <input id="freqValue" type="number" placeholder="Freq (kHz)">
+    <button onclick="setFreq()">Imposta</button>
+    <button class="secondary" onclick="cmd('step','next')">Step +</button>
+    <button class="secondary" onclick="cmd('bfoStep','next')">Step BFO +</button>
+  </div>
+  <script>
+    async function refresh() {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+      document.getElementById('status').textContent =
+        `${data.mode} ${data.freq} ${data.unit} | RSSI ${data.rssi} SNR ${data.snr} | BFO ${data.bfo}`;
+    }
+    async function cmd(key, value) {
+      await fetch(`/api/cmd?${key}=${value}`);
+      refresh();
+    }
+    async function setFreq() {
+      const val = document.getElementById('freqValue').value;
+      if (val) {
+        await cmd('freqSet', val);
+      }
+    }
+    refresh();
+    setInterval(refresh, 1500);
+  </script>
+</body>
+</html>
+)HTML";
+
+String currentFrequencyText();
 
 void IRAM_ATTR rotaryEncoder1() {
   unsigned char result = encoder1.process();
@@ -118,6 +194,31 @@ void showStatus() {
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
+
+  if (menuVisible) {
+    display.setCursor(0, 0);
+    display.print("MENU");
+    display.setCursor(0, 12);
+    display.print("WiFi: ");
+    display.print(WIFI_SSID);
+    display.setCursor(0, 22);
+    display.print("IP: ");
+    display.print(wifiIp.length() ? wifiIp : "-");
+    display.setCursor(0, 32);
+    display.print("Modo: ");
+    display.print(modeLabel());
+    display.setCursor(0, 42);
+    display.print("Freq: ");
+    display.print(currentFrequencyText());
+    display.print(currentMode == MODE_FM ? "MHz" : "kHz");
+    display.setCursor(0, 52);
+    display.print("RSSI ");
+    display.print(currentRssi);
+    display.print(" SNR ");
+    display.print(currentSnr);
+    display.display();
+    return;
+  }
   display.setCursor(0, 0);
   display.print(modeLabel());
   display.print(" B:");
@@ -246,6 +347,134 @@ void applyMode() {
   refreshSignalStatus(true);
 }
 
+String currentFrequencyText() {
+  if (currentMode == MODE_FM) {
+    return String(currentFrequency / 100.0f, 1);
+  }
+  return String(currentFrequency);
+}
+
+void handleStatus() {
+  String json = "{";
+  json += "\"mode\":\"" + String(modeLabel()) + "\",";
+  json += "\"freq\":\"" + currentFrequencyText() + "\",";
+  json += "\"unit\":\"" + String((currentMode == MODE_FM) ? "MHz" : "kHz") + "\",";
+  json += "\"rssi\":" + String(currentRssi) + ",";
+  json += "\"snr\":" + String(currentSnr) + ",";
+  json += "\"bfo\":" + String(currentBfo);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+void handleCommand() {
+  if (server.hasArg("mode")) {
+    String mode = server.arg("mode");
+    if (mode == "FM") {
+      currentMode = MODE_FM;
+    } else if (mode == "AM") {
+      currentMode = MODE_AM;
+    } else if (mode == "SSB") {
+      currentMode = MODE_SSB;
+      currentBfo = 0;
+    }
+    applyMode();
+  }
+
+  if (server.hasArg("band")) {
+    String band = server.arg("band");
+    if (band == "next" && currentMode != MODE_FM) {
+      currentBandIdx = (currentBandIdx + 1) % amBandCount;
+      applyMode();
+    }
+  }
+
+  if (server.hasArg("seek")) {
+    handleSeek();
+  }
+
+  if (server.hasArg("freq")) {
+    String dir = server.arg("freq");
+    if (dir == "up") {
+      updateFrequency(1);
+    } else if (dir == "down") {
+      updateFrequency(-1);
+    }
+  }
+
+  if (server.hasArg("freqSet")) {
+    uint16_t target = server.arg("freqSet").toInt();
+    if (currentMode == MODE_FM) {
+      target = constrain(target, fmMin, fmMax);
+      rx.setFrequency(target);
+      fmCurrent = target;
+    } else {
+      Band &band = amBands[currentBandIdx];
+      target = constrain(target, band.minFreq, band.maxFreq);
+      rx.setFrequency(target);
+      band.currentFreq = target;
+    }
+    currentFrequency = rx.getFrequency();
+    showStatus();
+  }
+
+  if (server.hasArg("bfo")) {
+    String dir = server.arg("bfo");
+    if (dir == "up") {
+      updateBfo(1);
+    } else if (dir == "down") {
+      updateBfo(-1);
+    }
+  }
+
+  if (server.hasArg("step")) {
+    if (currentMode == MODE_FM) {
+      currentFmStepIdx = (currentFmStepIdx + 1) % fmStepCount;
+      rx.setFrequencyStep(fmSteps[currentFmStepIdx]);
+    } else {
+      currentAmStepIdx = (currentAmStepIdx + 1) % amStepCount;
+      rx.setFrequencyStep(amSteps[currentAmStepIdx]);
+    }
+    showStatus();
+  }
+
+  if (server.hasArg("bfoStep")) {
+    currentBfoStepIdx = (currentBfoStepIdx + 1) % bfoStepCount;
+    showStatus();
+  }
+
+  server.send(200, "text/plain", "OK");
+}
+
+void handleRoot() {
+  server.send_P(200, "text/html", indexHtml);
+}
+
+void setupWebServer() {
+  server.on("/", handleRoot);
+  server.on("/api/status", handleStatus);
+  server.on("/api/cmd", handleCommand);
+  server.begin();
+}
+
+void setupWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("WiFi...");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - start) < 15000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiIp = WiFi.localIP().toString();
+    Serial.print("IP: ");
+    Serial.println(wifiIp);
+  } else {
+    Serial.println("WiFi non connesso");
+  }
+}
+
 void updateFrequency(int8_t direction) {
   if (direction > 0) {
     rx.frequencyUp();
@@ -324,6 +553,8 @@ void setup() {
   rx.setVolume(63);
   resetRdsState(rdsState);
   applyMode();
+  setupWifi();
+  setupWebServer();
   Serial.println("SI4735 ready");
 }
 
@@ -343,15 +574,28 @@ void loop() {
   uint32_t now = millis();
 
   if (digitalRead(ENCODER1_PUSH_BUTTON) == LOW && (now - lastEnc1Press) > DEBOUNCE_MS) {
-    lastEnc1Press = now;
-    if (currentMode == MODE_FM) {
-      currentFmStepIdx = (currentFmStepIdx + 1) % fmStepCount;
-      rx.setFrequencyStep(fmSteps[currentFmStepIdx]);
-    } else {
-      currentAmStepIdx = (currentAmStepIdx + 1) % amStepCount;
-      rx.setFrequencyStep(amSteps[currentAmStepIdx]);
+    if (enc1PressStart == 0) {
+      enc1PressStart = now;
+    } else if ((now - enc1PressStart) > LONG_PRESS_MS) {
+      menuVisible = !menuVisible;
+      enc1PressStart = 0;
+      lastEnc1Press = now;
+      showStatus();
     }
-    showStatus();
+  } else if (enc1PressStart != 0) {
+    uint32_t pressDuration = now - enc1PressStart;
+    enc1PressStart = 0;
+    if (pressDuration < LONG_PRESS_MS) {
+      lastEnc1Press = now;
+      if (currentMode == MODE_FM) {
+        currentFmStepIdx = (currentFmStepIdx + 1) % fmStepCount;
+        rx.setFrequencyStep(fmSteps[currentFmStepIdx]);
+      } else {
+        currentAmStepIdx = (currentAmStepIdx + 1) % amStepCount;
+        rx.setFrequencyStep(amSteps[currentAmStepIdx]);
+      }
+      showStatus();
+    }
   }
 
   if (digitalRead(ENCODER2_PUSH_BUTTON) == LOW && (now - lastEnc2Press) > DEBOUNCE_MS) {
@@ -382,6 +626,7 @@ void loop() {
     handleSeek();
   }
 
+  server.handleClient();
   refreshSignalStatus(false);
   if (currentMode == MODE_FM) {
     if (refreshRdsStatus(rx, rdsState, false)) {
